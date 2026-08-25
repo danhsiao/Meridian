@@ -1,0 +1,105 @@
+Title: Autonomous Compliance Workflow Engine (Meridian Take-Home)
+Author: Daniel Hsiao
+Timeline: 48 Hours
+1. The Objective
+
+A one-paragraph summary of what you are building and why.
+
+    Goal: Build a two-phase AI platform that allows non-technical users to define document compliance workflows visually, and then autonomously generates and self-heals a backend state machine to execute that logic.
+
+    The Core Tension Resolved: I'm using a limited DAG to make it user-friendly, relying on the user's non technical capabilities of not understanding code, but with that restrict the freedom of the DAG to remain consistency with the state machine in the backend. It's almost pretending like the user has freedom to make a DAG, but actually it's strict so the backend knows what's coming. It's a compromise and a win win scenario for both user and the developer. 
+
+2. Scope & Constraints
+
+In Scope:
+
+    React whiteboard with exactly 4 primitives (Channel, Artifact, Policy, Ledger). I chose these 4 primitives because it's all that required to generate what's needed for the AI. (Context, Action, Objective, Constraints)
+
+    AI Review loop utilizing structured (multiple-choice) comments. (MC to remain consistency and avoids more ambiguity)
+
+    CLI-driven (Claude Code/Codex) code generation and self-healing loop.
+
+    Temporal worker execution against 10 sample Composio emails.
+
+Out of Scope:
+
+    Real-time Gmail webhooks (using static inbox fetching for testing).
+
+    Visual representation of error loops on the frontend DAG.
+
+3. System Architecture
+
+4 zones: Interactive DAG/State Machine, Immutable Handoff, Zero-to-One Generation, and One-to-N Self-Healing.
+https://lucid.app/lucidchart/0cd54a9b-917f-4eec-b28c-87dbfd840d57/edit?view_items=GH1n6aAV_5D9&page=0_0&invitationId=inv_705b1a77-2e4d-49c4-ab04-813c4217442c
+
+4. The Data Model (The Immutable Handoff)
+
+Sample Frozen JSON Spec:
+{
+  "process_id": "shipment_receiving_001",
+  "channel": {
+    "type": "email_inbox",
+    "subject_match": "Pre-Alert Documents"
+  },
+  "artifacts": [
+    {
+      "id": "doc_1",
+      "type": "Commercial Invoice",
+      "target_array": "goods",
+      "required_fields": ["HTS", "FDA Product Code", "NDC", "ANDA", "Reg No"]
+    },
+    {
+      "id": "doc_2",
+      "type": "Certificate of Analysis",
+      "target_array": "batches",
+      "required_fields": ["Batch Number"]
+    }
+  ],
+  "policies": [
+    {
+      "rule_type": "field_presence",
+      "target_artifact": "doc_1",
+      "condition": "all_required_fields_present",
+      "on_fail": "flag_good_and_invoice_failed"
+    },
+    {
+      "rule_type": "cross_reference",
+      "source": "doc_1.batch_number",
+      "target": "doc_2.batch_number",
+      "on_fail": "flag_batch_failed"
+    }
+  ],
+  "ledger": [
+    {"metric": "invoices_processed", "deduplicate_by": "invoice_number"},
+    {"metric": "invoices_succeeded"},
+    {"metric": "invoices_failed"},
+    {"metric": "goods_failed"},
+    {"metric": "batches_processed", "deduplicate_by": "batch_number"},
+    {"metric": "batches_succeeded"},
+    {"metric": "batches_failed"}
+  ]
+}
+
+Subject to change, however this will be used as the "golden" json format and will be used to generate the MC questions/comments for the user. 
+
+5. Evaluation & Self-Healing Strategy
+
+A run is deemed fully successful only when the Temporal worker terminates and outputs a Ledger matching the exact expected counts and states defined in the frozen specification:
+
+    invoices_processed (with proper deduplication)
+
+    invoices_succeeded / invoices_failed
+
+    goods_failed (enforcing the 5-field requirement: HTS, FDA Product Code, NDC, ANDA, and Reg No)
+
+    batches_processed, batches_succeeded, and batches_failed (verified via cross-referencing invoice line items against Certificate of Analysis batch numbers) 
+
+When unexpected edge cases occur (e.g., a malformed PDF layout where an FDA product code is placed in a non-standard location), the system triggers a controlled self-healing loop:
+
+    Trace Interception: The test runner halts on an assertion mismatch and generates a detailed error trace containing the failing email ID, expected vs. actual ledger counts, and specific policy violation logs.
+
+    Context-Driven Debugging: The Self-Healing Agent ingests the error trace alongside the validation logic. Using the precise feedback from the stack trace, it localizes the parsing or extraction failure.
+
+    Targeted Patching: The agent applies a localized code patch exclusively to the isolated validation and parsing section of the generated code (adjusting extraction prompts, regex patterns, or rule checks). Write permissions are strictly restricted away from the core Temporal orchestration layer and Composio integrations to prevent architectural hallucination or regression.
+
+    Re-Evaluation: The test suite automatically re-runs. This cycle repeats autonomously or via human-in-the-loop CLI direction until all 10 test cases achieve a 100% pass rate.
