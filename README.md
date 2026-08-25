@@ -7,7 +7,7 @@ A one-paragraph summary of what you are building and why.
 
     Goal: Build a two-phase AI platform that allows non-technical users to define document compliance workflows visually, and then autonomously generates and self-heals a backend state machine to execute that logic.
 
-    The Core Tension Resolved: I'm using a limited DAG to make it user-friendly, relying on the user's non technical capabilities of not understanding code, but with that restrict the freedom of the DAG to remain consistency with the state machine in the backend. It's almost pretending like the user has freedom to make a DAG, but actually it's strict so the backend knows what's coming. It's a compromise and a win win scenario for both user and the developer. 
+    The Core Tension Resolved: I'm using a limited DAG to make it user-friendly, relying on the user's non technical capabilities of not understanding code, but with that restrict the freedom of the DAG to remain consistency with the state machine in the backend. The DAG serves as a constrained abstraction layer. It provides the visual flexibility non-technical users need to map linear business logic, while the underlying AI Review loop forces the resolution of edge cases. This ensures the output is a mathematically complete specification that can compile directly into a strict state machine. In simple terms, the user has the freedom of the "nouns" whereas the AI Review Agent reinforces the "verbs". 
 
 2. Scope & Constraints
 
@@ -15,7 +15,7 @@ In Scope:
 
     React whiteboard with exactly 4 primitives (Channel, Artifact, Policy, Ledger). I chose these 4 primitives because it's all that required to generate what's needed for the AI. (Context, Action, Objective, Constraints)
 
-    AI Review loop utilizing structured (multiple-choice) comments. (MC to remain consistency and avoids more ambiguity)
+    AI Review loop utilizing structured (multiple-choice) comments. (MC to remain consistency and avoids more ambiguity) Questions/Comments will be generated based on the "Golden" Frozen JSON format. 
 
     CLI-driven (Claude Code/Codex) code generation and self-healing loop.
 
@@ -23,9 +23,12 @@ In Scope:
 
 Out of Scope:
 
-    Real-time Gmail webhooks (using static inbox fetching for testing).
+    Custom LLM nodes within primitives
 
-    Visual representation of error loops on the frontend DAG.
+    Visual representation of error loops.
+
+One key assumption: SOP is used by every user. 
+
 
 3. System Architecture
 
@@ -33,6 +36,34 @@ Out of Scope:
 https://lucid.app/lucidchart/0cd54a9b-917f-4eec-b28c-87dbfd840d57/edit?view_items=GH1n6aAV_5D9&page=0_0&invitationId=inv_705b1a77-2e4d-49c4-ab04-813c4217442c
 
 4. The Data Model (The Immutable Handoff)
+Sample Shared Registry Example (Boundaries Set for the AI Review Agent):
+{
+  "primitives": {
+    "artifact": {
+      "allowed_types": ["Commercial Invoice", "Certificate of Analysis", "Packing List", "Custom"],
+      "required_resolution_keys": ["target_array", "required_fields"],
+      "codegen_instructions": {
+        "default": "Generate a strict object schema using 'required_fields' as string keys. Inject this schema into a runtime LLM tool call (e.g., Vercel AI SDK or OpenAI Python client) to semantically extract these fields from the unstructured pdfText. Force structured JSON output. Assign the validated data to the variable named in 'target_array'."
+      }
+    },
+    "policy": {
+      "allowed_rule_types": ["field_presence", "cross_reference"],
+      "required_resolution_keys": ["on_fail"],
+      "allowed_enum_mappings": {
+        "on_fail": [
+          "halt_workflow_immediately",
+          "flag_item_and_continue"
+        ]
+      },
+      "codegen_instructions": {
+        "field_presence": "Write an 'if (!item.field)' check for each field in 'required_fields'.",
+        "cross_reference": "Write a nested iteration block comparing the 'source' array against the 'target' array.",
+        "halt_workflow_immediately": "Throw Temporal ApplicationFailure.",
+        "flag_item_and_continue": "Append ID to ledger array; write 'continue' in loop."
+      }
+    }
+  }
+}
 
 Sample Frozen JSON Spec:
 {
@@ -53,7 +84,8 @@ Sample Frozen JSON Spec:
       "type": "Certificate of Analysis",
       "target_array": "batches",
       "required_fields": ["Batch Number"]
-    }
+    },
+    ...
   ],
   "policies": [
     {
@@ -67,7 +99,8 @@ Sample Frozen JSON Spec:
       "source": "doc_1.batch_number",
       "target": "doc_2.batch_number",
       "on_fail": "flag_batch_failed"
-    }
+    },
+    ...
   ],
   "ledger": [
     {"metric": "invoices_processed", "deduplicate_by": "invoice_number"},
@@ -77,10 +110,9 @@ Sample Frozen JSON Spec:
     {"metric": "batches_processed", "deduplicate_by": "batch_number"},
     {"metric": "batches_succeeded"},
     {"metric": "batches_failed"}
+    {"metric": "failed_batch_ids", "target": "batch_number"}
   ]
 }
-
-Subject to change, however this will be used as the "golden" json format and will be used to generate the MC questions/comments for the user. 
 
 5. Evaluation & Self-Healing Strategy
 
