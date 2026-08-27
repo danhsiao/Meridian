@@ -1,0 +1,141 @@
+{
+  "registry_version": "1.0",
+
+  "kinds": {
+    "channel": {
+      "required": ["tool"],
+      "required_if": { "has_outputs": ["match"], "has_inputs": ["request"] },
+      "optional": [],
+      "defaults": {},
+      "enums": { "tool": "@transport_registry" }
+    },
+
+    "artifact": {
+      "required": ["fields"],
+      "required_if": {
+        "multiple_sources": ["identity_key"],
+        "multiple_inbound_artifacts": ["pair_on"],
+        "sibling_artifacts_from_same_channel": ["source_hint"]
+      },
+      "optional": ["computed", "extraction_hint"],
+      "defaults": { "computed": null, "extraction_hint": null }
+    },
+
+    "policy": {
+      "required": ["describes", "on_fail", "on_absent"],
+      "required_if": {
+        "resolved_to_relation": ["check", "reads", "confirmed_by"],
+        "resolved_to_impl": ["impl", "reads", "confirmed_by"],
+        "neither_resolved": ["check"],
+        "multiple_read_artifacts": ["verdict_on"]
+      },
+      "optional": [],
+      "defaults": {},
+      "enums": {
+        "relation": ["present", "absent", "exists_matching", "equals", "in_set",
+                     "greater_than", "less_than", "within", "older_than", "newer_than"],
+        "on_fail": ["halt", "flag_and_continue"],
+        "on_absent": ["pass", "fail"]
+      }
+    },
+
+    "output": {
+      "required": ["rows"],
+      "optional": [],
+      "defaults": {},
+      "enums": { "fn": ["count", "sum", "list", "copy", "verdict"] }
+    },
+
+    "edge": {
+      "required": [],
+      "required_if": {
+        "endpoints_are_artifacts": ["rel"],
+        "rel_is_pairs_with": ["on"]
+      },
+      "optional": ["cardinality", "await", "rescope",
+                   "max_attempts", "timeout", "on_exhausted"],
+      "defaults": {
+        "cardinality": "one",
+        "max_attempts": 1,
+        "timeout": null,
+        "on_exhausted": "escalate",
+        "await": null,
+        "rescope": null
+      },
+      "enums": {
+        "cardinality": ["one", "many"],
+        "rel": ["contains", "pairs_with", "builds_from"],
+        "on_exhausted": ["escalate", "halt", "continue"],
+        "timeout": ["PT30S", "PT1H", "P1D", "P5D", "P14D"],
+        "max_attempts": [1, 2, 3, 5]
+      }
+    }
+  },
+
+  "required_if_codes": { "neither_resolved": "unresolved_policy" },
+
+  "ask": {
+    "channel.tool": { "binding": "control", "options_from": "transport_registry", "extensible": true },
+    "channel.match": { "binding": "prompt",
+                       "intent": "how to recognise the messages that belong to this process" },
+    "channel.request": { "binding": "prompt",
+                         "intent": "what gets sent out, and what goes in it" },
+
+    "artifact.fields": { "binding": "prompt",
+                         "intent": "the values pulled out of this thing" },
+    "artifact.source_hint": { "binding": "prompt",
+                              "intent": "which part of the message this one comes from" },
+    "artifact.identity_key": { "binding": "control", "options_from": "own_fields" },
+    "artifact.pair_on": { "binding": "control", "options_from": "shared_fields_of_inbound_artifacts" },
+
+    "policy.describes": { "binding": "prompt",
+                          "intent": "what this check looks at, in your own words" },
+    "policy.check": { "binding": "derived",
+                      "intent": "played back in her field names for confirmation" },
+    "policy.impl": { "binding": "derived",
+                     "intent": "played back in her field names for confirmation" },
+    "policy.reads": { "binding": "derived", "multi": true, "options_from": "read_artifact_fields" },
+    "policy.verdict_on": { "binding": "control", "options_from": "inbound_artifact_nodes" },
+    "policy.on_fail": { "binding": "control", "options_from": "enum", "extensible": false,
+                        "closed_because": "the orchestrator can stop or continue; a third behaviour is a fail edge, not an enum value" },
+    "policy.on_absent": { "binding": "control", "options_from": "enum", "extensible": false,
+                          "closed_because": "a check whose input is empty either passes or fails; there is no third answer" },
+    "policy.confirmed_by": { "binding": "derived",
+                             "intent": "the comment where she signed this check off" },
+
+    "output.rows": { "binding": "control", "options_from": "resolvable_row_targets", "multi": true },
+
+    "edge.rel": { "binding": "control", "options_from": "enum", "extensible": false,
+                  "intent": "how these two records relate — one sits inside the other, they pair up, or one is built from several",
+                  "closed_because": "one record can sit inside another, pair with another, or be built from several — the compiler has no fourth shape" },
+    "edge.on": { "binding": "control", "options_from": "shared_fields_of_endpoints" },
+    "edge.cardinality": { "binding": "control", "options_from": "enum", "extensible": false,
+                          "closed_because": "a step runs once or loops; there is no third arity" },
+    "edge.on_exhausted": { "binding": "control", "options_from": "enum", "extensible": false,
+                           "closed_because": "when the wait runs out the run can escalate, stop, or carry on with what it has" },
+    "edge.timeout": { "binding": "control", "options_from": "enum", "extensible": false,
+                      "closed_because": "a fixed set of wait durations; a custom value is an implementer edit, not a question" },
+    "edge.max_attempts": { "binding": "control", "options_from": "enum", "extensible": false,
+                           "closed_because": "chase counts beyond a handful mean the process needs a different escalation, not a bigger number" },
+    "edge.rescope": { "binding": "control", "options_from": "upstream_artifacts_of_policy", "multi": true },
+    "edge.await": { "binding": "control", "options_from": "inbound_channels" }
+  },
+
+  "templates": {
+    "channel.inbound": { "reads": ["tool", "match"] },
+    "channel.outbound": { "reads": ["tool", "request"] },
+    "artifact.extract": { "reads": ["fields", "source_hint", "extraction_hint"] },
+    "artifact.identity": { "reads": ["identity_key"] },
+    "artifact.merge": { "reads": ["pair_on"] },
+    "policy.relation": { "reads": ["describes", "check", "reads", "on_fail", "on_absent", "verdict_on"] },
+    "policy.impl": { "reads": ["describes", "impl", "reads", "on_fail", "on_absent", "verdict_on"] },
+    "output.rows": { "reads": ["rows"] },
+    "edge.loop": { "reads": ["cardinality"] },
+    "edge.join": { "reads": ["on"] },
+    "edge.fail": { "reads": ["await", "rescope", "max_attempts", "timeout", "on_exhausted"] }
+  },
+
+  "reads_compiler": ["edge.rel", "edge.on", "edge.cardinality",
+                     "artifact.identity_key", "policy.verdict_on",
+                     "policy.confirmed_by"]
+}

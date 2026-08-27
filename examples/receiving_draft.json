@@ -1,0 +1,71 @@
+{
+  "title": "Inbound import receiving (draft)",
+  "note": "The seed board for the review-loop demo. Drawn the way a domain expert actually draws it, NOT the way it should end up — five separate boxes for what are really five fields, no key on an invoice that arrives twice, two things pulled from one email with nothing saying which is which, two checks she described in English and never formalised, and a batch/certificate pair she never connected. This board must NOT freeze. receiving.json is where it converges.",
+  "nodes": [
+    { "id": "ch_a1", "primitive": "channel", "label": "Pre-alert inbox", "x": 40, "y": 200,
+      "config": { "tool": "composio.gmail",
+                  "match": { "subject_patterns": ["Pre-Alert Documents"] } } },
+
+    { "id": "ch_a2", "primitive": "channel", "label": "Forwarder resend", "x": 40, "y": 360,
+      "config": { "tool": "composio.gmail",
+                  "match": { "subject_patterns": ["FW: Pre-Alert"] } } },
+
+    { "id": "rec_inv", "primitive": "artifact", "label": "Commercial invoice", "x": 260, "y": 260,
+      "config": { "fields": ["invoice_number", "container_no"] } },
+
+    { "id": "rec_good", "primitive": "artifact", "label": "Good", "x": 460, "y": 60,
+      "config": {} },
+
+    { "id": "a_hts",  "primitive": "artifact", "label": "HTS",              "x": 660, "y": -40, "config": {} },
+    { "id": "a_fda",  "primitive": "artifact", "label": "FDA product code", "x": 660, "y": 20,  "config": {} },
+    { "id": "a_anda", "primitive": "artifact", "label": "ANDA",             "x": 660, "y": 80,  "config": {} },
+    { "id": "a_reg",  "primitive": "artifact", "label": "Reg No",           "x": 660, "y": 140, "config": {} },
+    { "id": "a_ndc",  "primitive": "artifact", "label": "NDC",              "x": 660, "y": 200, "config": {} },
+
+    { "id": "rec_batch", "primitive": "artifact", "label": "Batch", "x": 460, "y": 300,
+      "config": { "identity_key": "batch_number", "fields": ["batch_number"] } },
+
+    { "id": "rec_coa", "primitive": "artifact", "label": "Certificate of analysis", "x": 460, "y": 420,
+      "config": { "identity_key": "batch_number", "fields": ["batch_number"] } },
+
+    { "id": "rule_fields", "primitive": "policy", "label": "Required codes present", "x": 900, "y": 80,
+      "config": { "describes": "each good has to carry all its regulatory codes",
+                  "on_fail": "flag_and_continue", "on_absent": "fail" } },
+
+    { "id": "rule_coa", "primitive": "policy", "label": "Batch has certificate", "x": 900, "y": 360,
+      "config": { "describes": "chase up missing certificates — every batch needs one",
+                  "on_fail": "flag_and_continue", "on_absent": "fail" } },
+
+    { "id": "out_res", "primitive": "output", "label": "Shipment result", "x": 1140, "y": 220,
+      "config": { "rows": [
+        { "label": "invoices_processed", "fn": "count", "of": "rec_inv" },
+        { "label": "batches_failed",     "fn": "count", "of": "rec_batch", "where": "fail" }
+      ] } }
+  ],
+
+  "edges": [
+    { "id": "d1",  "from": "ch_a1",    "to": "rec_inv",   "config": { "cardinality": "many" } },
+    { "id": "d2",  "from": "ch_a2",    "to": "rec_inv",   "config": { "cardinality": "many" } },
+    { "id": "d3",  "from": "ch_a1",    "to": "rec_coa",   "config": { "cardinality": "many" } },
+    { "id": "d4",  "from": "rec_inv",  "to": "rec_good",  "config": { "rel": "contains", "cardinality": "many" } },
+    { "id": "d5",  "from": "rec_inv",  "to": "rec_batch", "config": { "rel": "contains", "cardinality": "many" } },
+
+    { "id": "d6",  "from": "rec_good", "to": "a_hts",  "config": { "rel": "contains" } },
+    { "id": "d7",  "from": "rec_good", "to": "a_fda",  "config": { "rel": "contains" } },
+    { "id": "d8",  "from": "rec_good", "to": "a_anda", "config": { "rel": "contains" } },
+    { "id": "d9",  "from": "rec_good", "to": "a_reg",  "config": { "rel": "contains" } },
+    { "id": "d10", "from": "rec_good", "to": "a_ndc",  "config": { "rel": "contains" } },
+
+    { "id": "d11", "from": "a_hts",  "to": "rule_fields", "config": {} },
+    { "id": "d12", "from": "a_fda",  "to": "rule_fields", "config": {} },
+    { "id": "d13", "from": "a_anda", "to": "rule_fields", "config": {} },
+    { "id": "d14", "from": "a_reg",  "to": "rule_fields", "config": {} },
+    { "id": "d15", "from": "a_ndc",  "to": "rule_fields", "config": {} },
+
+    { "id": "d16", "from": "rec_batch", "to": "rule_coa", "config": {} },
+    { "id": "d17", "from": "rec_coa",   "to": "rule_coa", "config": {} },
+
+    { "id": "d18", "from": "rule_fields", "to": "out_res", "config": {} },
+    { "id": "d19", "from": "rule_coa",    "to": "out_res", "config": {} }
+  ]
+}
