@@ -7,7 +7,7 @@
     "apps/*"
   ],
   "scripts": {
-    "test": "npm run test --workspaces --if-present",
+    "test": "vitest run",
     "typecheck": "tsc -b",
     "lint:nouns": "node tools/check-nouns.mjs",
     "check": "npm run lint:nouns && npm run typecheck && npm test",
