@@ -114,7 +114,11 @@ export default function BoardCard({ data }: NodeProps) {
       {/* Anchored to the node, drawn in screen space — it travels with the card
           when you drag, and doesn't shrink when you zoom out. */}
       <NodeToolbar isVisible={open && show.length > 0} position={Position.Right} offset={14}>
-        <div className="thread nodrag" onWheel={(e) => e.stopPropagation()}>
+        {/* `nowheel` is React Flow's own opt-out. The onWheel handler below was
+            not enough on its own: React Flow binds a NATIVE wheel listener to the
+            pane, and a React synthetic event never reaches it, so scrolling the
+            thread zoomed the canvas and the scrollbar was the only way down. */}
+        <div className="thread nodrag nowheel" onWheel={(e) => e.stopPropagation()}>
           {show.length > 1 && (
             <div className="thread-head">
               {show.length} comments on {card.node.label}

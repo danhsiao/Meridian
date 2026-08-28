@@ -34,20 +34,20 @@ import CommentPanel from "./CommentPanel";
 const nodeTypes = { boardCard: BoardCard };
 
 const EDGE_COLOR: Record<string, string> = {
-  derive: "#6aa9ff",
-  read: "#8b93a7",
-  outcome: "#c08cf5",
-  value: "#c08cf5",
-  undecided: "#f0b429",
-  report: "#6aa9ff",
-  invalid: "#ff6b6b",
-  join: "#7bd88f",
+  derive: "#5b7590",
+  read: "#93a1ae",
+  outcome: "#7a6bb0",
+  value: "#7a6bb0",
+  undecided: "#b9791b",
+  report: "#5b7590",
+  invalid: "#b4453f",
+  join: "#0f8b7e",
+  merge: "#0f8b7e",
   // Containment is normally the indentation on a card rather than a line. A
   // drawn one means its fold was cancelled by a second edge to the same pair.
-  contain: "#7bd88f",
-  merge: "#7bd88f",
-  input: "#8b93a7",
-  fail: "#ff6b6b",
+  contain: "#0f8b7e",
+  input: "#93a1ae",
+  fail: "#b4453f",
 };
 
 export default function BoardView({
@@ -306,7 +306,7 @@ export default function BoardView({
         label: e.label,
         animated: e.kind === "fail",
         style: {
-          stroke: EDGE_COLOR[e.kind] ?? "#8b93a7",
+          stroke: EDGE_COLOR[e.kind] ?? "#93a1ae",
           strokeWidth:
             e.kind === "fail" || e.kind === "undecided" || e.kind === "invalid" ? 2 : 1.4,
           strokeDasharray:
@@ -315,7 +315,7 @@ export default function BoardView({
             : e.kind === "invalid" ? "2 3"
             : undefined,
         },
-        markerEnd: { type: MarkerType.ArrowClosed, color: EDGE_COLOR[e.kind] ?? "#8b93a7" },
+        markerEnd: { type: MarkerType.ArrowClosed, color: EDGE_COLOR[e.kind] ?? "#93a1ae" },
       })),
     [folded],
   );
