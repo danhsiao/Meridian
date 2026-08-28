@@ -187,3 +187,21 @@ def extract(
             )
         )
     return records
+
+
+def scope_hint(parent_label: str, parent_fields: dict[str, Any]) -> str:
+    """Narrow an extraction to the records belonging to one parent.
+
+    A nested artifact -- rows inside one of several documents in the same
+    payload -- has to say *which* parent it belongs to, or the model returns
+    every row in the payload for every parent. The sentence is assembled from
+    the parent's label and its own extracted values, both of which come from the
+    spec and the run, so codegen emits one call and knows no domain.
+    """
+    stated = ", ".join(f"{k} = {v!r}" for k, v in parent_fields.items() if v not in (None, ""))
+    if not stated:
+        return f"Only the ones belonging to this {parent_label}."
+    return (
+        f"Only the ones belonging to the {parent_label} where {stated}. "
+        f"Ignore any that belong to a different {parent_label}."
+    )

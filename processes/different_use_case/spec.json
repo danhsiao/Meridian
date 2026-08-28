@@ -1,0 +1,188 @@
+{
+  "compiled": {
+    "edge_roles": {
+      "e_3": "read",
+      "e_4": "read",
+      "e_5": "outcome",
+      "e_6": "report",
+      "e_7": "derive",
+      "e_8": "derive"
+    },
+    "fail_handlers": [],
+    "identity_merges": {},
+    "joins": [],
+    "loop_scopes": {},
+    "topo_order": [
+      "cha_3",
+      "art_1",
+      "art_2",
+      "pol_1",
+      "out_1",
+      "cha_2"
+    ],
+    "verdict_targets": {
+      "pol_1": "art_2"
+    }
+  },
+  "edges": [
+    {
+      "config": {},
+      "from": "art_1",
+      "id": "e_3",
+      "to": "pol_1"
+    },
+    {
+      "config": {},
+      "from": "art_2",
+      "id": "e_4",
+      "to": "pol_1"
+    },
+    {
+      "config": {},
+      "from": "pol_1",
+      "id": "e_5",
+      "to": "out_1"
+    },
+    {
+      "config": {},
+      "from": "out_1",
+      "id": "e_6",
+      "to": "cha_2"
+    },
+    {
+      "config": {},
+      "from": "cha_3",
+      "id": "e_7",
+      "to": "art_1"
+    },
+    {
+      "config": {},
+      "from": "cha_3",
+      "id": "e_8",
+      "to": "art_2"
+    }
+  ],
+  "nodes": [
+    {
+      "config": {
+        "describes": "It's a PDF from the third api",
+        "fields": [
+          "Payment_required"
+        ],
+        "source_hint": "the name of the pdf from the thrid party api is called Accounts Payable"
+      },
+      "id": "art_1",
+      "label": "Accounts Payable",
+      "primitive": "artifact"
+    },
+    {
+      "config": {
+        "describes": "receipt is a pdf from the third party api",
+        "fields": [
+          "Inventory Cost"
+        ],
+        "source_hint": "named receipt"
+      },
+      "id": "art_2",
+      "label": "Receipt",
+      "primitive": "artifact"
+    },
+    {
+      "config": {
+        "describes": [
+          "Gmail",
+          "and the email(output) gets sent."
+        ],
+        "request": [
+          "the email",
+          "and the email template goes inside the email"
+        ],
+        "tool": "composio.gmail"
+      },
+      "id": "cha_2",
+      "label": "Outbound",
+      "primitive": "channel"
+    },
+    {
+      "config": {
+        "describes": "Third party API that sends documents like Accounts Payable and Receipt",
+        "match": "third party api",
+        "tool": "composio.gmail"
+      },
+      "id": "cha_3",
+      "label": "Thrid Party",
+      "primitive": "channel"
+    },
+    {
+      "config": {
+        "describes": "an email template sent to daniel hsiao",
+        "rows": [
+          {
+            "fn": "count",
+            "label": "Dear Daniel"
+          },
+          {
+            "fn": "count",
+            "label": "Payment doesn't match inventory cost. Let's meet. \n\nThank you."
+          }
+        ]
+      },
+      "id": "out_1",
+      "label": "Email",
+      "primitive": "output"
+    },
+    {
+      "config": {
+        "check": {
+          "relation": "equals"
+        },
+        "confirmed_by": "c_15",
+        "describes": "makes sure the inventory cost of the receipt is the same as payment_required in accounts payable.",
+        "on_absent": "fail",
+        "on_fail": "flag_and_continue",
+        "reads": [
+          "art_2.Inventory Cost",
+          "art_1.Payment_required"
+        ],
+        "verdict_on": "art_2"
+      },
+      "id": "pol_1",
+      "label": "Cross Validation",
+      "primitive": "policy"
+    }
+  ],
+  "process_id": "different_use_case",
+  "provenance": {
+    "assumptions": [],
+    "comments": [
+      "c_07",
+      "c_04",
+      "c_03",
+      "c_05",
+      "c_06",
+      "c_24",
+      "c_01",
+      "c_02",
+      "c_14",
+      "c_10",
+      "c_13",
+      "c_12",
+      "c_09",
+      "c_11",
+      "c_15",
+      "c_17",
+      "c_18",
+      "c_21",
+      "c_08",
+      "c_16",
+      "c_22",
+      "c_25",
+      "c_20",
+      "c_19",
+      "c_23"
+    ]
+  },
+  "registry_version": "1.0",
+  "spec_hash": "sha256:1203f48fde2f952b46422f1622a6c63e89cc2d3bad227cf80c1ec273d3c2ea89",
+  "spec_version": "1.0"
+}
