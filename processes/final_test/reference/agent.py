@@ -98,11 +98,18 @@ def run(payloads: list[dict[str, Any]], spec_path: str) -> dict[str, Any]:
         subject = state.field(record, subject_path)
         ok = on_absent([subject], config["on_absent"])
         if ok is None:
+            # HEAL PASS 1 (logic-failure). The subject field can hold several
+            # values in one string -- the board models this as a field on the
+            # parent rather than as its own artifact, so a one-to-many arrives
+            # comma-joined. Comparing the joined string against a single
+            # candidate never matches. Split, and require every part to match.
+            #
             # `squash` rather than exact equality: the two sides are transcribed
-            # from different documents by different people. The comparison is
-            # passed into the relation, so the engine's own definition of a
-            # match is untouched.
-            ok = relations.exists_matching(subject, candidates, key=squash)
+            # from different documents by different people. Both the split and
+            # the comparison are passed into the relation as data, so the
+            # engine's own definition of a match is untouched.
+            parts = [p for p in str(subject).split(",") if p.strip()]
+            ok = all(relations.exists_matching(p, candidates, key=squash) for p in parts)
         state.verdict("pol_2", "art_2", record, ok, f"exists_matching on {candidate_path}")
 
     # ── out_1 (output) ───────────────────────────────────────────────────
