@@ -57,10 +57,37 @@ describe("validation gates what reaches the board", () => {
   });
 
   it("her answer fills the hole, and only the hole", () => {
-    const m = { op: "add_edge" as const, edge: { id: "e9", from: null, to: "p1", config: {} } };
+    // Filled with `o1`, not `a1`: a1 -> p1 already exists on cleanBoard, and
+    // proposing an existing connection is now itself a validation error. The
+    // subject here is `fill`, so the fixture uses a pair that is genuinely new.
+    const m = { op: "add_edge" as const, edge: { id: "e9", from: null, to: "o1", config: {} } };
     const filled = fill(m, "a1");
-    expect(filled).toMatchObject({ edge: { from: "a1", to: "p1" } });
+    expect(filled).toMatchObject({ edge: { from: "a1", to: "o1" } });
     expect(validate(filled, cleanBoard())).toHaveLength(0);
+  });
+
+  it("refuses an edge between two cards that are already connected", () => {
+    // The database carries `unique (map_id, from_node, to_node)`. Until this
+    // existed, validate() only checked the edge ID, so a proposal to add a
+    // connection that already exists passed and then died at the insert —
+    // showing a constraint name to someone who had done nothing wrong.
+    const errs = validate(
+      { op: "add_edge", edge: { id: "e_new", from: "a1", to: "p1", config: {} } },
+      cleanBoard(),
+    );
+    expect(errs).toHaveLength(1);
+    expect(errs[0]).toContain("duplicates the existing connection");
+  });
+
+  it("still allows the reverse direction, which is a different edge", () => {
+    // `unique (from, to)` is ordered. p1 -> a1 is not a1 -> p1, and the
+    // compiler will judge it on its own merits.
+    expect(
+      validate(
+        { op: "add_edge", edge: { id: "e_rev", from: "p1", to: "a1", config: {} } },
+        cleanBoard(),
+      ),
+    ).toHaveLength(0);
   });
 });
 

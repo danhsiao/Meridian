@@ -35,6 +35,21 @@ export function validate(
   const errs: string[] = [];
   const ids = new Set(board.nodes.map((n) => n.id));
   const edgeIds = new Set(board.edges.map((e) => e.id));
+  /**
+   * The database's notion of a duplicate edge, mirrored here.
+   *
+   * `edges` carries `unique (map_id, from_node, to_node)`, so two cards can be
+   * connected once. This function only ever checked for an id collision, so a
+   * proposal to add a connection that already exists validated cleanly and then
+   * died at the insert -- putting `duplicate key value violates unique
+   * constraint "edges_map_id_from_node_to_node_key"` in front of a person who
+   * had done nothing wrong.
+   *
+   * Same class as the four defects where several places each decided for
+   * themselves what a piece of state meant: the compiler's "duplicate" was by
+   * id, Postgres's was by endpoints, and they disagreed. Now there is one rule.
+   */
+  const edgePairs = new Set(board.edges.map((e) => `${e.from}\u0000${e.to}`));
   const need = (id: string | null, what: string) => {
     if (id === HOLE) {
       if (!allowHoles) errs.push(`${what} is still unfilled at apply time`);
@@ -62,6 +77,16 @@ export function validate(
       need(m.edge.to, "add_edge.to");
       if (edgeIds.has(m.edge.id)) errs.push(`add_edge would collide with existing "${m.edge.id}"`);
       if (m.edge.from !== HOLE && m.edge.from === m.edge.to) errs.push("add_edge is a self-loop");
+      // Already connected. This is what makes a stale Pass B proposal RETIRE
+      // rather than reach the insert: postgres.ts closes a Pass B comment when
+      // validate() says its mutation has become impossible, and re-proposing an
+      // existing connection is exactly that.
+      if (
+        m.edge.from !== HOLE && m.edge.to !== HOLE &&
+        edgePairs.has(`${m.edge.from}\u0000${m.edge.to}`)
+      ) {
+        errs.push(`add_edge duplicates the existing connection ${m.edge.from} -> ${m.edge.to}`);
+      }
       break;
     case "delete_node":
       need(m.node_id, "delete_node.node_id");

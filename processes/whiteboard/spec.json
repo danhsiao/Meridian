@@ -1,0 +1,290 @@
+{
+  "compiled": {
+    "edge_roles": {
+      "e_1": "derive",
+      "e_2": "read",
+      "e_3": "outcome",
+      "e_4": "outcome",
+      "e_5": "contain",
+      "e_6": "read",
+      "e_7": "read",
+      "e_8": "contain",
+      "e_9": "contain"
+    },
+    "fail_handlers": [],
+    "identity_merges": {},
+    "joins": [],
+    "loop_scopes": {
+      "art_2": [
+        "e_8"
+      ],
+      "art_4": [
+        "e_8",
+        "e_5"
+      ],
+      "art_5": [
+        "e_9"
+      ],
+      "pol_1": [
+        "e_8",
+        "e_5"
+      ],
+      "pol_2": [
+        "e_8"
+      ]
+    },
+    "topo_order": [
+      "cha_1",
+      "art_1",
+      "art_2",
+      "art_4",
+      "art_5",
+      "pol_1",
+      "pol_2",
+      "out_1"
+    ],
+    "verdict_targets": {
+      "pol_1": "art_4",
+      "pol_2": "art_2"
+    }
+  },
+  "edges": [
+    {
+      "config": {},
+      "from": "cha_1",
+      "id": "e_1",
+      "to": "art_1"
+    },
+    {
+      "config": {},
+      "from": "art_4",
+      "id": "e_2",
+      "to": "pol_1"
+    },
+    {
+      "config": {},
+      "from": "pol_1",
+      "id": "e_3",
+      "to": "out_1"
+    },
+    {
+      "config": {},
+      "from": "pol_2",
+      "id": "e_4",
+      "to": "out_1"
+    },
+    {
+      "config": {
+        "cardinality": "many",
+        "rel": "contains"
+      },
+      "from": "art_2",
+      "id": "e_5",
+      "to": "art_4"
+    },
+    {
+      "config": {},
+      "from": "art_2",
+      "id": "e_6",
+      "to": "pol_2"
+    },
+    {
+      "config": {},
+      "from": "art_5",
+      "id": "e_7",
+      "to": "pol_2"
+    },
+    {
+      "config": {
+        "cardinality": "many",
+        "rel": "contains"
+      },
+      "from": "art_1",
+      "id": "e_8",
+      "to": "art_2"
+    },
+    {
+      "config": {
+        "cardinality": "many",
+        "rel": "contains"
+      },
+      "from": "art_1",
+      "id": "e_9",
+      "to": "art_5"
+    }
+  ],
+  "nodes": [
+    {
+      "config": {
+        "describes": "it's an email that comes from my inbox"
+      },
+      "id": "art_1",
+      "label": "PreAlert Document Email",
+      "primitive": "artifact"
+    },
+    {
+      "config": {
+        "describes": "invoices are pdfs inside the prealert document email.",
+        "fields": [
+          "Batch Number"
+        ]
+      },
+      "id": "art_2",
+      "label": "Invoices",
+      "primitive": "artifact"
+    },
+    {
+      "config": {
+        "describes": [
+          "Goods are inside every batch",
+          "which are in every invoice."
+        ],
+        "fields": [
+          "ASDA",
+          "FDA",
+          "NA Code"
+        ]
+      },
+      "id": "art_4",
+      "label": "Goods",
+      "primitive": "artifact"
+    },
+    {
+      "config": {
+        "describes": "CoAs are pdfs in the pre alert documents email.",
+        "fields": [
+          "Batch Number"
+        ]
+      },
+      "id": "art_5",
+      "label": "CoAs",
+      "primitive": "artifact"
+    },
+    {
+      "config": {
+        "describes": [
+          "Inbox connects to gmail",
+          "and emails come through."
+        ],
+        "match": "Subject Line is \"Pre-Alert Documents\"",
+        "tool": "composio.gmail"
+      },
+      "id": "cha_1",
+      "label": "Inbox",
+      "primitive": "channel"
+    },
+    {
+      "config": {
+        "describes": [
+          "Number of Batches Processed/Succeeded/Failed",
+          "Number of Invoices Succeeded/Failed",
+          "Number of Goods Succeeded/Failed"
+        ],
+        "rows": [
+          {
+            "fn": "count",
+            "label": "How many invoices"
+          },
+          {
+            "fn": "count",
+            "label": "batches"
+          },
+          {
+            "fn": "count",
+            "label": "and goods processed"
+          },
+          {
+            "fn": "count",
+            "label": "alongside the number of successes and failures."
+          }
+        ]
+      },
+      "id": "out_1",
+      "label": "List of Result",
+      "primitive": "output"
+    },
+    {
+      "config": {
+        "check": {
+          "relation": "present"
+        },
+        "confirmed_by": "c_25",
+        "describes": [
+          "Check to see if all goods have an ASDA code",
+          "FDA code",
+          "and NA Code."
+        ],
+        "on_absent": "fail",
+        "on_fail": "flag_and_continue",
+        "reads": [
+          "art_4.ASDA"
+        ],
+        "verdict_on": "art_4"
+      },
+      "id": "pol_1",
+      "label": "Code Policy",
+      "primitive": "policy"
+    },
+    {
+      "config": {
+        "check": {
+          "params": {
+            "on": [
+              [
+                "art_2.Batch Number",
+                "art_5.Batch Number"
+              ]
+            ]
+          },
+          "relation": "exists_matching"
+        },
+        "confirmed_by": "c_27",
+        "describes": "Cross references the Batch Number of every batch in the invoice with the batch number of CoAs.",
+        "on_absent": "fail",
+        "on_fail": "flag_and_continue",
+        "reads": [
+          "art_2.Batch Number",
+          "art_5.Batch Number"
+        ],
+        "verdict_on": "art_2"
+      },
+      "id": "pol_2",
+      "label": "Cross Reference Policy",
+      "primitive": "policy"
+    }
+  ],
+  "process_id": "whiteboard",
+  "provenance": {
+    "assumptions": [],
+    "comments": [
+      "c_04",
+      "c_02",
+      "c_07",
+      "c_03",
+      "c_05",
+      "c_06",
+      "c_13",
+      "c_08",
+      "c_14",
+      "c_09",
+      "c_10",
+      "c_11",
+      "c_12",
+      "c_15",
+      "c_16",
+      "c_17",
+      "c_20",
+      "c_21",
+      "c_24",
+      "c_22",
+      "c_23",
+      "c_19",
+      "c_26",
+      "c_25",
+      "c_27"
+    ]
+  },
+  "registry_version": "1.0",
+  "spec_hash": "sha256:0dec3476a157f6c47426d206115facdb09838b5884fa9129e4a1469bf5cc2c81",
+  "spec_version": "1.0"
+}
