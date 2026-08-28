@@ -66,6 +66,14 @@ export function validate(
     case "delete_node":
       need(m.node_id, "delete_node.node_id");
       break;
+    case "rename_node":
+      need(m.node_id, "rename_node.node_id");
+      if (m.label === HOLE) {
+        if (!allowHoles) errs.push("rename_node.label is still unfilled");
+      } else if (!m.label.trim()) {
+        errs.push("rename_node.label is empty");
+      }
+      break;
     case "merge_nodes":
       need(m.keep, "merge_nodes.keep");
       need(m.drop, "merge_nodes.drop");
@@ -83,6 +91,24 @@ export function validate(
     case "record_elicited":
       need(m.node_id, "record_elicited.node_id");
       break;
+    case "sequence": {
+      if (m.steps.length === 0) errs.push("sequence has no steps");
+      // Each step is validated against the board AS IT WILL BE when that step
+      // runs, so a sequence may add a node and then connect it. Validating every
+      // step against the original board would reject exactly the case batches
+      // exist for.
+      let staged = board;
+      for (const [i, step] of m.steps.entries()) {
+        const stepErrs = validate(step, staged, { allowHoles });
+        errs.push(...stepErrs.map((e) => `step ${i + 1}: ${e}`));
+        if (stepErrs.length === 0 && !allowHoles) {
+          try { staged = apply(staged, step); } catch { /* reported above */ }
+        } else if (stepErrs.length === 0) {
+          staged = stage(staged, step);
+        }
+      }
+      break;
+    }
     default: {
       const never: never = m;
       errs.push(`unknown mutation op: ${JSON.stringify(never)}`);
@@ -104,6 +130,8 @@ export function fill(m: Mutation, answer: unknown): Mutation {
       return m.value === HOLE ? { ...m, value: answer } : m;
     case "set_edge_config":
       return m.value === HOLE ? { ...m, value: answer } : m;
+    case "rename_node":
+      return m.label === HOLE && typeof answer === "string" ? { ...m, label: answer } : m;
     case "add_edge": {
       const edge = { ...m.edge };
       if (edge.from === HOLE && typeof answer === "string") edge.from = answer;
@@ -123,7 +151,10 @@ export function apply(board: Board, m: Mutation): Board {
 
   switch (m.op) {
     case "set_config_key":
-      return mapNode(board, m.node_id, (n) => ({ ...n, config: { ...n.config, [m.key]: m.value } }));
+      return mapNode(board, m.node_id, (n) => ({
+        ...n,
+        config: { ...n.config, [m.key]: coerce(m.key, m.value) },
+      }));
 
     case "set_edge_config":
       return {
@@ -142,6 +173,9 @@ export function apply(board: Board, m: Mutation): Board {
 
     case "delete_node":
       return dropNodes(board, [m.node_id]);
+
+    case "rename_node":
+      return mapNode(board, m.node_id, (n) => ({ ...n, label: String(m.label).trim() }));
 
     case "merge_nodes":
       return mergeNodes(board, m.keep, m.drop);
@@ -162,7 +196,19 @@ export function apply(board: Board, m: Mutation): Board {
         ...n,
         config: { ...n.config, ...m.proposal },
       }));
+
+    case "sequence":
+      return m.steps.reduce(apply, board);
   }
+}
+
+/**
+ * A cheap forward-guess used only while validating a sequence with holes still in
+ * it: enough for later steps to see that an earlier one added a node.
+ */
+function stage(board: Board, m: Mutation): Board {
+  if (m.op === "add_node") return { ...board, nodes: [...board.nodes, m.node] };
+  return board;
 }
 
 export function applyAll(board: Board, ms: Mutation[]): Board {
@@ -266,6 +312,22 @@ function dropNodes(board: Board, ids: NodeId[]): Board {
     nodes: board.nodes.filter((n) => !gone.has(n.id)),
     edges: board.edges.filter((e) => !gone.has(e.from) && !gone.has(e.to)),
   };
+}
+
+/**
+ * `rows` is the one key whose answer arrives as prose and has to become
+ * structure. She writes what she wants to know, one line each; every line
+ * becomes a row that still needs a subject, which the compiler then asks about
+ * one at a time. Nothing is invented — `of` is left empty on purpose.
+ */
+function coerce(key: string, value: unknown): unknown {
+  if (key !== "rows") return value;
+  const lines = Array.isArray(value)
+    ? value.map(String)
+    : String(value ?? "").split(/[\n,]/);
+  const wanted = lines.map((l) => l.trim()).filter(Boolean);
+  if (wanted.length === 0) return value;
+  return wanted.map((label) => ({ label, fn: "count" }));
 }
 
 function asRows(v: unknown): Record<string, unknown>[] {

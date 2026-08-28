@@ -10,7 +10,7 @@ import { render, EmptyOptionSet } from "../render.js";
 import type { Board, Edge, Node, Primitive } from "../types.js";
 
 const node = (id: string, primitive: Primitive, config: Record<string, unknown> = {}, label?: string): Node => ({
-  id, primitive, label: label ?? id, config,
+  id, primitive, label: label ?? id, config: { describes: `what ${id} is`, ...config },
 });
 const edge = (id: string, from: string, to: string, config: Record<string, unknown> = {}): Edge => ({
   id, from, to, config,
@@ -42,8 +42,10 @@ const JARGON = [
   "identity_key", "pair_on", "topo_order", "primitive", "binding",
 ];
 
+/** Only questions. Status findings are refused by render(), as the worker
+ *  expects — they belong on the card as a marker, not in a pin. */
 function renderAll(b: Board) {
-  return elaborate(b).findings.map((f) => render(f, b));
+  return elaborate(b).findings.filter((f) => f.askable).map((f) => render(f, b));
 }
 
 describe("no type-system vocabulary reaches her", () => {
@@ -65,10 +67,9 @@ describe("no type-system vocabulary reaches her", () => {
     demote.edges.push(edge("e5", "a2", "p1"));
     boards.push(demote);
 
-    const stranded = cleanBoard();
-    stranded.nodes.push(node("a9", "artifact", { fields: ["f1"] }, "Orphan"));
-    stranded.edges.push(edge("e9", "a9", "p1"));
-    boards.push(stranded);
+    const undescribed = cleanBoard();
+    undescribed.nodes[0].config = { tool: "composio.gmail", match: { s: 1 } };
+    boards.push(undescribed);
 
     const unresolved = cleanBoard();
     delete (unresolved.nodes[2].config as Record<string, unknown>).check;
@@ -96,15 +97,18 @@ describe("answer_kind is derived from binding, never chosen", () => {
     const r = renderAll(b).find((x) => x.code === "missing_conditional_key")!;
     expect(r.binding).toBe("control");
     expect(r.answer_kind).toBe("choice");
-    // options come from the board, not from a model
-    expect(r.options!.map((o) => o.value)).toEqual(["f1", "f2"]);
+    // options come from the board, not from a model — plus the escape, because
+    // a multiple choice with no way out is a dead end.
+    expect(r.options!.map((o) => o.value)).toEqual(["f1", "f2", "__escape__"]);
+    expect(r.options!.at(-1)!.escape).toBe(true);
   });
 
   it("prompt renders free text with no options", () => {
     const b = cleanBoard();
-    b.nodes[1].config = {};
-    const r = renderAll(b).find((x) => x.code === "missing_required_key")!;
-    expect(r.binding).toBe("prompt"); // artifact.fields is prose bound for a prompt
+    // Undescribed, so the one question is "what is this?" — prose, no options.
+    b.nodes[1].config = { fields: ["f1"] };
+    const r = renderAll(b).find((x) => x.binding === "prompt")!;
+    expect(r, "expected at least one prose question").toBeDefined();
     expect(r.answer_kind).toBe("text");
     expect(r.options).toBeNull();
   });
@@ -156,11 +160,11 @@ describe("wording explains why she is being asked", () => {
 
   it("uses the node's label, so the question names what she drew", () => {
     const b = cleanBoard();
-    b.nodes.push(node("a9", "artifact", { fields: ["f1"] }, "Orphan"));
-    b.edges.push(edge("e9", "a9", "p1"));
-    const r = renderAll(b).find((x) => x.code === "unreachable_node")!;
+    b.nodes[1].label = "Orphan";
+    b.nodes[1].config = { describes: "a record" };  // no fields
+    const r = renderAll(b).find((x) => x.body.includes("Orphan"))!;
+    expect(r, "expected a question naming the card she drew").toBeDefined();
     expect(r.body).toContain("Orphan");
-    expect(r.options!.map((o) => o.value)).toContain("c1");
   });
 });
 
@@ -168,8 +172,6 @@ describe("every rendered comment carries its fix", () => {
   it("mutation is never dropped on the way through render", () => {
     const b = cleanBoard();
     b.nodes[1].config = {};
-    b.nodes.push(node("a9", "artifact", { fields: ["f1"] }, "Orphan"));
-    b.edges.push(edge("e9", "a9", "p1"));
     for (const r of renderAll(b)) {
       expect(r.mutation, `${r.code} rendered without a mutation`).toBeTruthy();
       expect(r.mutation.op).toBeTruthy();

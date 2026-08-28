@@ -6,11 +6,13 @@ import { describe, expect, it } from "vitest";
 import { blockingFindings, elaborate } from "../elaborate.js";
 import type { Board, Edge, FindingCode, Node, Primitive } from "../types.js";
 
+// `describes` is required on every primitive, so the helper supplies one
+// unless a test is specifically about its absence.
 const node = (id: string, primitive: Primitive, config: Record<string, unknown> = {}): Node => ({
   id,
   primitive,
   label: id,
-  config,
+  config: { describes: `what ${id} is`, ...config },
 });
 
 const edge = (id: string, from: string, to: string, config: Record<string, unknown> = {}): Edge => ({
@@ -64,10 +66,13 @@ describe("a clean board", () => {
 });
 
 describe("registry findings", () => {
-  it("missing_required_key — an artifact with no fields", () => {
+  it("missing_required_key — a card with nothing said about it", () => {
     const b = cleanBoard();
     b.nodes[1].config = {};
-    expect(codes(b)).toContain("missing_required_key");
+    // `describes` is required on every primitive; `fields` is conditional on
+    // the record having no children, so it arrives as a conditional key.
+    const f = elaborate(b).findings.filter((x) => x.code === "missing_required_key");
+    expect(f.map((x) => x.evidence.key)).toContain("describes");
   });
 
   it("missing_conditional_key — two sources, so it needs an identity_key", () => {
@@ -104,10 +109,14 @@ describe("registry findings", () => {
 });
 
 describe("graph findings", () => {
-  it("unreachable_node — nothing flows into it", () => {
+  it("unreachable_node — nothing flows into it, and it is status not a question", () => {
     const b = cleanBoard();
     b.nodes.push(node("a9", "artifact", { fields: ["f1"] }));
-    expect(codes(b)).toContain("unreachable_node");
+    const f = elaborate(b).findings.find((x) => x.code === "unreachable_node")!;
+    expect(f).toBeDefined();
+    // The compiler knows it is stranded and cannot know what should feed it,
+    // so any option set would be invented.
+    expect(f.askable).toBe(false);
   });
 
   it("no_terminal_path — reaches no output and no outbound channel", () => {
@@ -329,7 +338,7 @@ describe("severity and rank are different axes", () => {
 
     const found = elaborate(b).findings;
     const structural = found.findIndex((f) => f.code === "demote_to_field");
-    const missingKey = found.findIndex((f) => f.code === "missing_required_key");
+    const missingKey = found.findIndex((f) => f.code === "missing_conditional_key");
     expect(structural).toBeGreaterThanOrEqual(0);
     expect(missingKey).toBeGreaterThanOrEqual(0);
     expect(structural).toBeLessThan(missingKey);
@@ -354,9 +363,9 @@ describe("severity and rank are different axes", () => {
     // before "give this thing some fields", and taking the first answer makes
     // the second finding disappear. Two valid resolutions, one preferred.
     const alsoBlocking = blockingFindings(found).map((f) => f.code);
-    expect(alsoBlocking).toContain("missing_required_key");
+    expect(alsoBlocking).toContain("missing_conditional_key");
     expect(found.findIndex((f) => f.code === "demote_to_field")).toBeLessThan(
-      found.findIndex((f) => f.code === "missing_required_key"),
+      found.findIndex((f) => f.code === "missing_conditional_key"),
     );
   });
 

@@ -1,77 +1,287 @@
 {
   "title": "Inbound import receiving",
-  "note": "Converged. Every industry-specific noun here lives in a label or a source_hint — the compiler knows rec_coa only as 'keyed on batch_number, paired with Batch, read by a check'.",
+  "note": "Converged. Every industry-specific noun here lives in a label or a source_hint \u2014 the compiler knows rec_coa only as 'keyed on batch_number, paired with Batch, read by a check'.",
   "nodes": [
-    { "id": "ch_a1", "primitive": "channel", "label": "Pre-alert inbox", "x": 40, "y": 200,
-      "config": { "tool": "composio.gmail",
-                  "match": { "subject_patterns": ["Pre-Alert Documents"] } } },
-
-    { "id": "rec_inv", "primitive": "artifact", "label": "Commercial invoice", "x": 260, "y": 120,
-      "config": { "identity_key": "invoice_number",
-                  "fields": ["invoice_number", "container_no"],
-                  "source_hint": "attachment headed 'Commercial Invoice'" } },
-
-    { "id": "rec_good", "primitive": "artifact", "label": "Good", "x": 480, "y": 40,
-      "config": { "fields": ["hts", "fda_product_code", "anda", "reg_no", "ndc"] } },
-
-    { "id": "rec_batch", "primitive": "artifact", "label": "Batch", "x": 480, "y": 200,
-      "config": { "identity_key": "batch_number", "fields": ["batch_number"] } },
-
-    { "id": "rec_coa", "primitive": "artifact", "label": "Certificate of analysis", "x": 480, "y": 320,
-      "config": { "identity_key": "batch_number", "fields": ["batch_number"],
-                  "source_hint": "attachment headed 'Certificate of Analysis'" } },
-
-    { "id": "rule_fields", "primitive": "policy", "label": "Required codes present", "x": 720, "y": 40,
-      "config": { "describes": "each good has to carry all five regulatory codes",
-                  "check": { "relation": "present" },
-                  "reads": ["rec_good.hts", "rec_good.fda_product_code",
-                            "rec_good.anda", "rec_good.reg_no", "rec_good.ndc"],
-                  "verdict_on": "rec_good",
-                  "on_fail": "flag_and_continue", "on_absent": "fail",
-                  "confirmed_by": "c_04" } },
-
-    { "id": "rule_coa", "primitive": "policy", "label": "Batch has certificate", "x": 720, "y": 260,
-      "config": { "describes": "every batch on the invoice needs a certificate of analysis",
-                  "check": { "relation": "exists_matching", "params": { "on": "batch_number" } },
-                  "reads": ["rec_batch.batch_number", "rec_coa.batch_number"],
-                  "verdict_on": "rec_batch",
-                  "on_fail": "flag_and_continue", "on_absent": "fail",
-                  "confirmed_by": "c_07" } },
-
-    { "id": "ch_out", "primitive": "channel", "label": "Discrepancy email", "x": 960, "y": 380,
-      "config": { "tool": "composio.gmail",
-                  "request": { "to": "danieljhsiao@gmail.com",
-                               "subject": "Discrepancy — invoice {rec_inv.invoice_number}",
-                               "body": "Missing certificates for: {rec_batch.batch_number where fail}" } } },
-
-    { "id": "out_res", "primitive": "output", "label": "Shipment result", "x": 960, "y": 140,
-      "config": { "rows": [
-        { "label": "invoices_processed", "fn": "count", "of": "rec_inv" },
-        { "label": "invoices_failed",    "fn": "count", "of": "rec_inv",   "where": "fail" },
-        { "label": "goods_failed",       "fn": "count", "of": "rec_good",  "where": "fail" },
-        { "label": "batches_processed",  "fn": "count", "of": "rec_batch" },
-        { "label": "batches_failed",     "fn": "count", "of": "rec_batch", "where": "fail" },
-        { "label": "failed_batch_ids",   "fn": "list", "of": "rec_batch.batch_number", "where": "fail" }
-      ] } }
+    {
+      "id": "ch_a1",
+      "primitive": "channel",
+      "label": "Pre-alert inbox",
+      "x": 40,
+      "y": 200,
+      "config": {
+        "tool": "composio.gmail",
+        "match": {
+          "subject_patterns": [
+            "Pre-Alert Documents"
+          ]
+        },
+        "describes": "Freight forwarders email us the paperwork before a container lands."
+      }
+    },
+    {
+      "id": "rec_inv",
+      "primitive": "artifact",
+      "label": "Commercial invoice",
+      "x": 260,
+      "y": 120,
+      "config": {
+        "identity_key": "invoice_number",
+        "fields": [
+          "invoice_number",
+          "container_no"
+        ],
+        "source_hint": "attachment headed 'Commercial Invoice'",
+        "describes": "The commercial invoice for a shipment. It comes in as an attachment on the pre-alert."
+      }
+    },
+    {
+      "id": "rec_good",
+      "primitive": "artifact",
+      "label": "Good",
+      "x": 480,
+      "y": 40,
+      "config": {
+        "fields": [
+          "hts",
+          "fda_product_code",
+          "anda",
+          "reg_no",
+          "ndc"
+        ],
+        "describes": "A line item on the invoice \u2014 one product, with its regulatory codes."
+      }
+    },
+    {
+      "id": "rec_batch",
+      "primitive": "artifact",
+      "label": "Batch",
+      "x": 480,
+      "y": 200,
+      "config": {
+        "identity_key": "batch_number",
+        "fields": [
+          "batch_number"
+        ],
+        "describes": "A manufacturing batch listed against a line item."
+      }
+    },
+    {
+      "id": "rec_coa",
+      "primitive": "artifact",
+      "label": "Certificate of analysis",
+      "x": 480,
+      "y": 320,
+      "config": {
+        "identity_key": "batch_number",
+        "fields": [
+          "batch_number"
+        ],
+        "source_hint": "attachment headed 'Certificate of Analysis'",
+        "describes": "The lab certificate for a batch, attached to the same email."
+      }
+    },
+    {
+      "id": "rule_fields",
+      "primitive": "policy",
+      "label": "Required codes present",
+      "x": 720,
+      "y": 40,
+      "config": {
+        "describes": "Each good has to carry all five regulatory codes.",
+        "check": {
+          "relation": "present"
+        },
+        "reads": [
+          "rec_good.hts",
+          "rec_good.fda_product_code",
+          "rec_good.anda",
+          "rec_good.reg_no",
+          "rec_good.ndc"
+        ],
+        "verdict_on": "rec_good",
+        "on_fail": "flag_and_continue",
+        "on_absent": "fail",
+        "confirmed_by": "c_04"
+      }
+    },
+    {
+      "id": "rule_coa",
+      "primitive": "policy",
+      "label": "Batch has certificate",
+      "x": 720,
+      "y": 260,
+      "config": {
+        "describes": "Every batch on the invoice needs a certificate of analysis.",
+        "check": {
+          "relation": "exists_matching",
+          "params": {
+            "on": "batch_number"
+          }
+        },
+        "reads": [
+          "rec_batch.batch_number",
+          "rec_coa.batch_number"
+        ],
+        "verdict_on": "rec_batch",
+        "on_fail": "flag_and_continue",
+        "on_absent": "fail",
+        "confirmed_by": "c_07"
+      }
+    },
+    {
+      "id": "ch_out",
+      "primitive": "channel",
+      "label": "Discrepancy email",
+      "x": 960,
+      "y": 380,
+      "config": {
+        "tool": "composio.gmail",
+        "request": {
+          "to": "danieljhsiao@gmail.com",
+          "subject": "Discrepancy \u2014 invoice {rec_inv.invoice_number}",
+          "body": "Missing certificates for: {rec_batch.batch_number where fail}"
+        },
+        "describes": "We email the forwarder about anything missing and wait for them to send it."
+      }
+    },
+    {
+      "id": "out_res",
+      "primitive": "output",
+      "label": "Shipment result",
+      "x": 960,
+      "y": 140,
+      "config": {
+        "rows": [
+          {
+            "label": "invoices_processed",
+            "fn": "count",
+            "of": "rec_inv"
+          },
+          {
+            "label": "invoices_failed",
+            "fn": "count",
+            "of": "rec_inv",
+            "where": "fail"
+          },
+          {
+            "label": "goods_failed",
+            "fn": "count",
+            "of": "rec_good",
+            "where": "fail"
+          },
+          {
+            "label": "batches_processed",
+            "fn": "count",
+            "of": "rec_batch"
+          },
+          {
+            "label": "batches_failed",
+            "fn": "count",
+            "of": "rec_batch",
+            "where": "fail"
+          },
+          {
+            "label": "failed_batch_ids",
+            "fn": "list",
+            "of": "rec_batch.batch_number",
+            "where": "fail"
+          }
+        ],
+        "describes": "How many invoices and batches we processed, and which ones failed."
+      }
+    }
   ],
-
   "edges": [
-    { "id": "e1",  "from": "ch_a1",       "to": "rec_inv",     "config": { "cardinality": "many" } },
-    { "id": "e2",  "from": "ch_a1",       "to": "rec_coa",     "config": { "cardinality": "many" } },
-    { "id": "e3",  "from": "rec_inv",     "to": "rec_good",    "config": { "rel": "contains", "cardinality": "many" } },
-    { "id": "e4",  "from": "rec_inv",     "to": "rec_batch",   "config": { "rel": "contains", "cardinality": "many" } },
-    { "id": "e5",  "from": "rec_batch",   "to": "rec_coa",     "config": { "rel": "pairs_with", "on": "batch_number" } },
-    { "id": "e6",  "from": "rec_good",    "to": "rule_fields", "config": {} },
-    { "id": "e7",  "from": "rec_batch",   "to": "rule_coa",    "config": {} },
-    { "id": "e8",  "from": "rec_coa",     "to": "rule_coa",    "config": {} },
-    { "id": "e9",  "from": "rule_fields", "to": "out_res",     "config": {} },
-    { "id": "e10", "from": "rule_coa",    "to": "out_res",     "config": {} },
-    { "id": "e11", "from": "rule_coa",    "to": "ch_out",
-      "config": { "on": "fail",
-                  "await": { "channel": "ch_a1", "correlate_on": "invoice_number" },
-                  "rescope": ["rec_batch"],
-                  "max_attempts": 3,
-                  "timeout": "PT30S",
-                  "on_exhausted": "continue" } }
+    {
+      "id": "e1",
+      "from": "ch_a1",
+      "to": "rec_inv",
+      "config": {
+        "cardinality": "many"
+      }
+    },
+    {
+      "id": "e2",
+      "from": "ch_a1",
+      "to": "rec_coa",
+      "config": {
+        "cardinality": "many"
+      }
+    },
+    {
+      "id": "e3",
+      "from": "rec_inv",
+      "to": "rec_good",
+      "config": {
+        "rel": "contains",
+        "cardinality": "many"
+      }
+    },
+    {
+      "id": "e4",
+      "from": "rec_inv",
+      "to": "rec_batch",
+      "config": {
+        "rel": "contains",
+        "cardinality": "many"
+      }
+    },
+    {
+      "id": "e5",
+      "from": "rec_batch",
+      "to": "rec_coa",
+      "config": {
+        "rel": "pairs_with",
+        "on": "batch_number"
+      }
+    },
+    {
+      "id": "e6",
+      "from": "rec_good",
+      "to": "rule_fields",
+      "config": {}
+    },
+    {
+      "id": "e7",
+      "from": "rec_batch",
+      "to": "rule_coa",
+      "config": {}
+    },
+    {
+      "id": "e8",
+      "from": "rec_coa",
+      "to": "rule_coa",
+      "config": {}
+    },
+    {
+      "id": "e9",
+      "from": "rule_fields",
+      "to": "out_res",
+      "config": {}
+    },
+    {
+      "id": "e10",
+      "from": "rule_coa",
+      "to": "out_res",
+      "config": {}
+    },
+    {
+      "id": "e11",
+      "from": "rule_coa",
+      "to": "ch_out",
+      "config": {
+        "on": "fail",
+        "await": {
+          "channel": "ch_a1",
+          "correlate_on": "invoice_number"
+        },
+        "rescope": [
+          "rec_batch"
+        ],
+        "max_attempts": 3,
+        "timeout": "PT30S",
+        "on_exhausted": "continue"
+      }
+    }
   ]
 }

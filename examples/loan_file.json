@@ -1,54 +1,193 @@
 {
   "title": "Loan file completeness",
-  "note": "A different industry, the same grammar. Nothing in packages/compiler, runtime/ or apps/web was touched to make this board work — that non-diff is the generality claim.",
+  "note": "A different industry, the same grammar. Nothing in packages/compiler, runtime/ or apps/web was touched to make this board work \u2014 that non-diff is the generality claim.",
   "nodes": [
-    { "id": "ch_intake", "primitive": "channel", "label": "Underwriting inbox", "x": 40, "y": 180,
-      "config": { "tool": "composio.gmail",
-                  "match": { "subject_patterns": ["Loan file", "Borrower documents"] } } },
-
-    { "id": "doc_app", "primitive": "artifact", "label": "Application", "x": 280, "y": 100,
-      "config": { "identity_key": "loan_number",
-                  "fields": ["loan_number", "borrower_name", "stated_income"],
-                  "source_hint": "the form headed 'Uniform Residential Loan Application'" } },
-
-    { "id": "doc_stub", "primitive": "artifact", "label": "Pay stub", "x": 280, "y": 300,
-      "config": { "identity_key": "loan_number",
-                  "fields": ["loan_number", "employer", "gross_pay"],
-                  "source_hint": "the payroll document with an employer name and a pay period" } },
-
-    { "id": "rule_stub", "primitive": "policy", "label": "Application has a pay stub", "x": 560, "y": 260,
-      "config": { "describes": "every application on file needs a matching pay stub",
-                  "check": { "relation": "exists_matching", "params": { "on": "loan_number" } },
-                  "reads": ["doc_app.loan_number", "doc_stub.loan_number"],
-                  "verdict_on": "doc_app",
-                  "on_fail": "flag_and_continue", "on_absent": "fail",
-                  "confirmed_by": "c_02" } },
-
-    { "id": "rule_income", "primitive": "policy", "label": "Income is stated", "x": 560, "y": 80,
-      "config": { "describes": "the borrower has to have put an income on the application",
-                  "check": { "relation": "present" },
-                  "reads": ["doc_app.stated_income"],
-                  "verdict_on": "doc_app",
-                  "on_fail": "flag_and_continue", "on_absent": "fail",
-                  "confirmed_by": "c_03" } },
-
-    { "id": "out_file", "primitive": "output", "label": "File review result", "x": 820, "y": 160,
-      "config": { "rows": [
-        { "label": "files_reviewed",  "fn": "count", "of": "doc_app" },
-        { "label": "files_complete",  "fn": "count", "of": "doc_app", "where": "pass" },
-        { "label": "files_incomplete","fn": "count", "of": "doc_app", "where": "fail" },
-        { "label": "incomplete_ids",  "fn": "list",  "of": "doc_app.loan_number", "where": "fail" }
-      ] } }
+    {
+      "id": "ch_intake",
+      "primitive": "channel",
+      "label": "Underwriting inbox",
+      "x": 40,
+      "y": 180,
+      "config": {
+        "tool": "composio.gmail",
+        "match": {
+          "subject_patterns": [
+            "Loan file",
+            "Borrower documents"
+          ]
+        },
+        "describes": "Borrowers and brokers email documents to the underwriting inbox."
+      }
+    },
+    {
+      "id": "doc_app",
+      "primitive": "artifact",
+      "label": "Application",
+      "x": 280,
+      "y": 100,
+      "config": {
+        "identity_key": "loan_number",
+        "fields": [
+          "loan_number",
+          "borrower_name",
+          "stated_income"
+        ],
+        "source_hint": "the form headed 'Uniform Residential Loan Application'",
+        "describes": "The loan application form the borrower filled in."
+      }
+    },
+    {
+      "id": "doc_stub",
+      "primitive": "artifact",
+      "label": "Pay stub",
+      "x": 280,
+      "y": 300,
+      "config": {
+        "identity_key": "loan_number",
+        "fields": [
+          "loan_number",
+          "employer",
+          "gross_pay"
+        ],
+        "source_hint": "the payroll document with an employer name and a pay period",
+        "describes": "A pay stub proving the income on the application."
+      }
+    },
+    {
+      "id": "rule_stub",
+      "primitive": "policy",
+      "label": "Application has a pay stub",
+      "x": 560,
+      "y": 260,
+      "config": {
+        "describes": "Every application on file needs a matching pay stub.",
+        "check": {
+          "relation": "exists_matching",
+          "params": {
+            "on": "loan_number"
+          }
+        },
+        "reads": [
+          "doc_app.loan_number",
+          "doc_stub.loan_number"
+        ],
+        "verdict_on": "doc_app",
+        "on_fail": "flag_and_continue",
+        "on_absent": "fail",
+        "confirmed_by": "c_02"
+      }
+    },
+    {
+      "id": "rule_income",
+      "primitive": "policy",
+      "label": "Income is stated",
+      "x": 560,
+      "y": 80,
+      "config": {
+        "describes": "The borrower has to have put an income on the application.",
+        "check": {
+          "relation": "present"
+        },
+        "reads": [
+          "doc_app.stated_income"
+        ],
+        "verdict_on": "doc_app",
+        "on_fail": "flag_and_continue",
+        "on_absent": "fail",
+        "confirmed_by": "c_03"
+      }
+    },
+    {
+      "id": "out_file",
+      "primitive": "output",
+      "label": "File review result",
+      "x": 820,
+      "y": 160,
+      "config": {
+        "rows": [
+          {
+            "label": "files_reviewed",
+            "fn": "count",
+            "of": "doc_app"
+          },
+          {
+            "label": "files_complete",
+            "fn": "count",
+            "of": "doc_app",
+            "where": "pass"
+          },
+          {
+            "label": "files_incomplete",
+            "fn": "count",
+            "of": "doc_app",
+            "where": "fail"
+          },
+          {
+            "label": "incomplete_ids",
+            "fn": "list",
+            "of": "doc_app.loan_number",
+            "where": "fail"
+          }
+        ],
+        "describes": "How many files we reviewed and which are still incomplete."
+      }
+    }
   ],
-
   "edges": [
-    { "id": "l1", "from": "ch_intake",   "to": "doc_app",     "config": { "cardinality": "many" } },
-    { "id": "l2", "from": "ch_intake",   "to": "doc_stub",    "config": { "cardinality": "many" } },
-    { "id": "l3", "from": "doc_app",     "to": "doc_stub",    "config": { "rel": "pairs_with", "on": "loan_number" } },
-    { "id": "l4", "from": "doc_app",     "to": "rule_stub",   "config": {} },
-    { "id": "l5", "from": "doc_stub",    "to": "rule_stub",   "config": {} },
-    { "id": "l6", "from": "doc_app",     "to": "rule_income", "config": {} },
-    { "id": "l7", "from": "rule_stub",   "to": "out_file",    "config": {} },
-    { "id": "l8", "from": "rule_income", "to": "out_file",    "config": {} }
+    {
+      "id": "l1",
+      "from": "ch_intake",
+      "to": "doc_app",
+      "config": {
+        "cardinality": "many"
+      }
+    },
+    {
+      "id": "l2",
+      "from": "ch_intake",
+      "to": "doc_stub",
+      "config": {
+        "cardinality": "many"
+      }
+    },
+    {
+      "id": "l3",
+      "from": "doc_app",
+      "to": "doc_stub",
+      "config": {
+        "rel": "pairs_with",
+        "on": "loan_number"
+      }
+    },
+    {
+      "id": "l4",
+      "from": "doc_app",
+      "to": "rule_stub",
+      "config": {}
+    },
+    {
+      "id": "l5",
+      "from": "doc_stub",
+      "to": "rule_stub",
+      "config": {}
+    },
+    {
+      "id": "l6",
+      "from": "doc_app",
+      "to": "rule_income",
+      "config": {}
+    },
+    {
+      "id": "l7",
+      "from": "rule_stub",
+      "to": "out_file",
+      "config": {}
+    },
+    {
+      "id": "l8",
+      "from": "rule_income",
+      "to": "out_file",
+      "config": {}
+    }
   ]
 }

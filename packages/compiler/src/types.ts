@@ -36,7 +36,18 @@ export type EdgeRole =
   | "read"     // artifact -> policy
   | "input"    // artifact -> channel
   | "outcome"  // policy   -> output
+  | "value"    // artifact -> output    (an output row reading a field directly)
   | "fail"     // policy   -> channel   (stripped from the data DAG)
+  /**
+   * output -> channel. The finished report goes somewhere: emailed at the end
+   * of the run, posted, filed.
+   *
+   * Distinct from `fail`, and the distinction is the arity. A fail edge fires
+   * per failing record, mid-run, and is stripped from the data DAG because it
+   * is control flow. A report fires once, after the output is computed, and
+   * stays IN topo_order — it is the last step of the run, not a handler.
+   */
+  | "report"   // output   -> channel
   | "contain"  // artifact -> artifact, rel = contains
   | "join"     // artifact -> artifact, rel = pairs_with
   | "merge";   // artifact -> artifact, rel = builds_from
@@ -102,6 +113,9 @@ export type FindingCode =
   | "unbound_policy"
   | "output_row_unresolvable"
   | "undeclared_join"
+  | "edge_not_expressible"
+  | "channel_talks_to_itself"
+  | "duplicate_label"
   | "unresolved_policy"
   | "reads_unbound"
   | "open_comment"
@@ -121,6 +135,16 @@ export type Anchor = { node_id: NodeId } | { edge_id: EdgeId };
 
 export interface Finding {
   code: FindingCode;
+  /**
+   * Can this be ASKED yet, as opposed to merely being required?
+   *
+   * "What should on_absent be?" is meaningless on a bare card — she hasn't said
+   * what the check does or what it looks at. Such a finding still blocks
+   * freeze, because the key really is required; it just isn't a question worth
+   * putting to her until the thing it depends on exists. The review agent only
+   * raises askable findings; freeze counts them all.
+   */
+  askable: boolean;
   /** Does this stop freeze? */
   severity: Severity;
   /** Where does it sit in the queue? */
@@ -149,11 +173,26 @@ export type Mutation =
   | { op: "add_node"; node: Node; near?: NodeId }
   | { op: "add_edge"; edge: EdgeTemplate }
   | { op: "delete_node"; node_id: NodeId }
+  /**
+   * A label is not config — it is how she refers to the thing, and the only
+   * name any question ever uses. That makes renaming a real edit rather than a
+   * cosmetic one, so it goes through the same path as everything else.
+   */
+  | { op: "rename_node"; node_id: NodeId; label: string | null }
   | { op: "merge_nodes"; keep: NodeId; drop: NodeId }
   | { op: "demote_to_field"; node_id: NodeId; parent_id: NodeId; field: string;
       rewire_policies: NodeId[] }
   | { op: "add_output_row"; node_id: NodeId; row: Record<string, unknown> }
-  | { op: "record_elicited"; node_id: NodeId; proposal: Record<string, unknown> };
+  | { op: "record_elicited"; node_id: NodeId; proposal: Record<string, unknown> }
+  /**
+   * Several edits that only make sense together.
+   *
+   * Proposing a card is really proposing a card AND the line that connects it —
+   * added separately, the first step leaves the board briefly stranded and the
+   * compiler complains about a node the agent is halfway through adding. One
+   * comment, one answer, one transaction.
+   */
+  | { op: "sequence"; steps: Mutation[] };
 
 export interface ElaborateResult {
   ir: Partial<IR>;
@@ -174,6 +213,8 @@ export interface KindSpec {
 
 export interface AskSpec {
   binding: Binding;
+  /** Raw enum value -> what she should see. She never reads an enum value. */
+  option_labels?: Record<string, string>;
   options_from?: string;
   extensible?: boolean;
   closed_because?: string;
@@ -184,6 +225,8 @@ export interface AskSpec {
 export interface Registry {
   registry_version: string;
   kinds: Record<string, KindSpec>;
+  /** key -> the named condition that must hold before it's worth asking. */
+  askable_if?: Record<string, string>;
   required_if_codes?: Record<string, FindingCode>;
   ask: Record<string, AskSpec>;
   templates: Record<string, { reads: string[] }>;

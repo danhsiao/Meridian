@@ -8,6 +8,38 @@ import type { Edge, Node } from "./types.js";
 export type NodeCondition = (n: Node, g: Graph) => boolean;
 export type EdgeCondition = (e: Edge, g: Graph) => boolean;
 
+/**
+ * Has this policy resolved to something that can be compiled?
+ *
+ * Presence is not resolution. `check` and `impl` are `derived` keys — the shape
+ * the agent produced from her description — and a non-null value that is a
+ * sentence rather than a relation resolves nothing. Four consumers test a
+ * policy for "settled" (these conditions, the resolution loop, the canvas fold
+ * rule, freeze), and every one of them used `!= null`. Prose in `check` therefore
+ * read as resolved everywhere at once: the resolver skipped the policy, the
+ * canvas folded it into its parent record, and the board went quiet holding a
+ * check nothing downstream could compile. One structural predicate, shared, so
+ * "resolved" cannot mean different things in different files.
+ */
+export function resolvedToRelation(n: Node): boolean {
+  const c = n.config?.check;
+  return isPlainObject(c) && typeof c.relation === "string" && c.relation.length > 0;
+}
+
+export function resolvedToImpl(n: Node): boolean {
+  const i = n.config?.impl;
+  return isPlainObject(i) && typeof i.body === "string" && i.body.length > 0;
+}
+
+/** Resolved either way. What the canvas and the review worker actually ask. */
+export function policyIsResolved(n: Node): boolean {
+  return resolvedToRelation(n) || resolvedToImpl(n);
+}
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
 export const nodeConditions: Record<string, NodeCondition> = {
   // ── channel ──────────────────────────────────────────────────────────
   // Something is derived FROM this channel, so it needs to know which
@@ -21,6 +53,15 @@ export const nodeConditions: Record<string, NodeCondition> = {
   multiple_sources: (n, g) => g.incoming(n.id).length > 1,
   // Built from several parents, so something has to say which rows combine.
   multiple_inbound_artifacts: (n, g) => g.inboundArtifacts(n.id).length > 1,
+  /**
+   * A record with no child records must carry values of its own, or nothing is
+   * ever extracted from it. One that DOES contain child records need not: the
+   * values live on the children, and two records hanging off it already answer
+   * "what do you pull out of this?".
+   */
+  holds_no_child_records: (n, g) =>
+    n.primitive === "artifact" && g.outboundOf(n.id, "artifact").length === 0,
+
   // Two artifacts off one channel: something has to say which attachment is which.
   sibling_artifacts_from_same_channel: (n, g) => {
     if (n.primitive !== "artifact") return false;
@@ -31,13 +72,13 @@ export const nodeConditions: Record<string, NodeCondition> = {
   },
 
   // ── policy ───────────────────────────────────────────────────────────
-  resolved_to_relation: (n) => n.config?.check != null,
-  resolved_to_impl: (n) => n.config?.impl != null,
+  resolved_to_relation: (n) => resolvedToRelation(n),
+  resolved_to_impl: (n) => resolvedToImpl(n),
   // Fires exactly when neither shape has resolved. The registry then requires
   // `check` — arbitrary, since `impl` would satisfy it equally, which is why
   // `required_if_codes` renames the finding to `unresolved_policy` rather than
   // letting the freeze error imply a relation is mandatory.
-  neither_resolved: (n) => n.config?.check == null && n.config?.impl == null,
+  neither_resolved: (n) => !resolvedToRelation(n) && !resolvedToImpl(n),
   // Reads span more than one artifact, so something must name which one takes
   // the failure — otherwise two different counts collapse into one.
   multiple_read_artifacts: (n) => {
@@ -47,6 +88,41 @@ export const nodeConditions: Record<string, NodeCondition> = {
     return artifacts.size > 1;
   },
 };
+
+/**
+ * Askability, not requirement.
+ *
+ * A bare policy card genuinely requires `on_absent` — but asking "what should
+ * happen when the value is empty?" before she has said what the check even
+ * does is a question about nothing. These say when a key becomes a real
+ * question. The requirement is unchanged; only the asking waits.
+ *
+ * The rule of thumb this enforces: a new empty card produces exactly ONE
+ * question, and it is about what the thing is. Everything else follows.
+ */
+export const askableConditions: Record<string, NodeCondition> = {
+  policy_described_and_bound: (n, g) =>
+    nonEmpty(n.config?.describes) && g.inboundArtifacts(n.id).length > 0,
+  artifact_has_fields: (n) => Array.isArray(n.config?.fields) && n.config.fields.length > 0,
+  channel_described: (n) => nonEmpty(n.config?.describes),
+  artifact_described: (n) => nonEmpty(n.config?.describes),
+  /** Where does it fit in the process? Only fair once she's said what it IS. */
+  described: (n) => nonEmpty(n.config?.describes),
+  output_described: (n) => nonEmpty(n.config?.describes),
+};
+
+export const askableEdgeConditions: Record<string, EdgeCondition> = {
+  // Asking "which value connects them?" is only meaningful once there IS one.
+  endpoints_share_a_field: (e, g) => {
+    const a = fieldsOf(g.node(e.from));
+    const b = fieldsOf(g.node(e.to));
+    return a.some((x) => b.includes(x));
+  },
+};
+
+function nonEmpty(v: unknown): boolean {
+  return typeof v === "string" ? v.trim().length > 0 : v != null;
+}
 
 export const edgeConditions: Record<string, EdgeCondition> = {
   // `rel` means nothing on a channel->artifact edge; it only discriminates
@@ -63,6 +139,15 @@ export const edgeConditions: Record<string, EdgeCondition> = {
 export interface Option {
   value: string | number;
   label: string;
+  /**
+   * Declining. Answering applies the comment's mutation, so an option that
+   * means "no" must say so — otherwise "No, they're unrelated" runs the
+   * add_edge it was declining, and "No, it should connect to something" runs
+   * the delete_node. Both did, until this existed.
+   */
+  rejects?: true;
+  /** "None of these — let me explain." Opens free text instead of answering. */
+  escape?: true;
 }
 
 const opt = (v: string | number, label?: string): Option => ({ value: v, label: label ?? String(v) });

@@ -10,7 +10,9 @@
 // precisely the questions the compiler would ask. Same function.
 
 import registryJson from "../registry.json" with { type: "json" };
-import { edgeConditions, nodeConditions } from "./conditions.js";
+import {
+  askableConditions, askableEdgeConditions, edgeConditions, nodeConditions,
+} from "./conditions.js";
 import {
   Graph,
   fieldsOf,
@@ -67,6 +69,27 @@ const SEVERITY_OF: Record<Rank, Severity> = {
   advisory: "advisory",
 };
 
+/**
+ * A mutation the compiler cannot justify offering.
+ *
+ * Two shapes qualify. `add_edge` with a null endpoint means "something should
+ * feed this, and I don't know what" — the candidates are every node on the
+ * board, so any multiple choice is fabricated, and answering it produces an
+ * edge the compiler had no basis for. `delete_node` means "this doesn't reach
+ * anything" — true, and not grounds for offering to remove work she may be
+ * midway through.
+ *
+ * Both are STATUS: a marker on the card and a line in the blocking list, fixed
+ * by direct manipulation rather than by an interview. Comments are only for
+ * keys where an option source produces real values from her board or the
+ * registry; if the option set is invented, it isn't a question.
+ */
+function cannotBeAsked(m: Finding["mutation"]): boolean {
+  if (m.op === "add_edge") return m.edge.from === null || m.edge.to === null;
+  if (m.op === "delete_node") return true;
+  return false;
+}
+
 function emit(
   ctx: Ctx,
   code: FindingCode,
@@ -74,8 +97,31 @@ function emit(
   anchor: Finding["anchor"],
   evidence: Record<string, unknown>,
   mutation: Finding["mutation"],
+  askable = true,
 ): void {
-  ctx.findings.push({ code, severity: SEVERITY_OF[rank], rank, anchor, evidence, mutation });
+  ctx.findings.push({
+    code,
+    severity: SEVERITY_OF[rank],
+    rank,
+    anchor,
+    evidence,
+    mutation,
+    askable: askable && !cannotBeAsked(mutation),
+  });
+}
+
+/**
+ * Is this key worth asking about yet? Still required either way — freeze counts
+ * every blocking finding — but the review agent only raises askable ones.
+ */
+function askableNow(primitive: string, key: string, subject: Node | Edge, g: Graph): boolean {
+  const name = registry.askable_if?.[`${primitive}.${key}`];
+  if (!name) return true;
+  const nodeCond = askableConditions[name];
+  if (nodeCond) return nodeCond(subject as Node, g);
+  const edgeCond = askableEdgeConditions[name];
+  if (edgeCond) return edgeCond(subject as Edge, g);
+  return true;
 }
 
 export function elaborate(board: Board): ElaborateResult {
@@ -121,20 +167,42 @@ function checkNodeKeys(ctx: Ctx): void {
     for (const key of spec.required) {
       if (isEmpty(n.config[key])) {
         emit(ctx, "missing_required_key", "blocking", { node_id: n.id }, { key, primitive: n.primitive },
-          { op: "set_config_key", node_id: n.id, key, value: null });
+          { op: "set_config_key", node_id: n.id, key, value: null },
+          askableNow(n.primitive, key, n, ctx.g));
       }
     }
 
     for (const [condName, keys] of Object.entries(spec.required_if ?? {})) {
       const cond = nodeConditions[condName];
       if (!cond || !cond(n, ctx.g)) continue;
+      const code = registry.required_if_codes?.[condName] ?? "missing_conditional_key";
+
+      // A condition that names its own finding code IS the predicate. The
+      // generic path asks "is the key empty?", but `neither_resolved` already
+      // asked a sharper question — has this resolved to something compilable —
+      // and the key it names is only the peg the requirement hangs on. Testing
+      // emptiness on top of it means a `check` holding a sentence reads as
+      // filled, the condition fires, and no finding comes out: the board sits
+      // blocked with nothing to say.
+      const named = registry.required_if_codes?.[condName] != null;
+
       for (const key of keys) {
-        if (isEmpty(n.config[key])) {
-          const code = registry.required_if_codes?.[condName] ?? "missing_conditional_key";
-          emit(ctx, code as FindingCode, "blocking", { node_id: n.id },
-            { key, condition: condName, primitive: n.primitive },
-            { op: "set_config_key", node_id: n.id, key, value: null });
-        }
+        if (!named && !isEmpty(n.config[key])) continue;
+
+        // `unresolved_policy` names `check` because `required_if` has no "one
+        // of" grammar. But `check` is a `derived` key holding a compiled
+        // relation, and the question this finding asks is "say more about what
+        // this does" — prose. Pointed at `check`, her answer lands in the slot
+        // the agent was meant to fill, and the policy then reads as resolved to
+        // everything downstream while holding a sentence. Her words belong in
+        // `describes`, which is exactly what the resolution loop reads.
+        const target = code === "unresolved_policy" ? "describes" : key;
+
+        emit(ctx, code as FindingCode, "blocking", { node_id: n.id },
+          { key: target, condition: condName, primitive: n.primitive,
+            describes: n.config.describes },
+          { op: "set_config_key", node_id: n.id, key: target, value: null },
+          askableNow(n.primitive, key, n, ctx.g));
       }
     }
 
@@ -171,7 +239,8 @@ function checkEdgeKeys(ctx: Ctx): void {
           const code = registry.required_if_codes?.[condName] ?? "missing_conditional_key";
           emit(ctx, code as FindingCode, "blocking", { edge_id: e.id },
             { key, condition: condName },
-            { op: "set_edge_config", edge_id: e.id, key, value: null });
+            { op: "set_edge_config", edge_id: e.id, key, value: null },
+            askableNow("edge", key, e, ctx.g));
         }
       }
     }
@@ -202,14 +271,31 @@ function resolveEdgeRoles(ctx: Ctx): Record<string, EdgeRole> {
     else if (from === "artifact" && to === "policy") roles[e.id] = "read";
     else if (from === "artifact" && to === "channel") roles[e.id] = "input";
     else if (from === "policy" && to === "output") roles[e.id] = "outcome";
+    // "verdicts from policies, values from artifacts" — an output may read a
+    // field straight off a record without a check in between.
+    else if (from === "artifact" && to === "output") roles[e.id] = "value";
     else if (from === "policy" && to === "channel") roles[e.id] = "fail";
+    // The finished report goes somewhere. Once, at the end — so unlike a fail
+    // edge this is a data edge and stays in topo_order.
+    else if (from === "output" && to === "channel") roles[e.id] = "report";
     else if (from === "artifact" && to === "artifact") {
       // Declared, never inferred. Inferring containment from a missing `on`
       // means a join drawn without a key compiles as extraction — a silently
       // wrong compile, which is the failure class this design exists to stop.
       const rel = e.config.rel;
-      roles[e.id] =
-        rel === "pairs_with" ? "join" : rel === "builds_from" ? "merge" : "contain";
+      if (rel === "pairs_with") roles[e.id] = "join";
+      else if (rel === "builds_from") roles[e.id] = "merge";
+      else if (rel === "contains") roles[e.id] = "contain";
+      // No rel yet: leave it out. `required_if: endpoints_are_artifacts` is
+      // already asking, and defaulting to containment would let a join she
+      // hasn't described compile as an extraction.
+    } else {
+      // No role means codegen has nothing to emit for this edge. Dropping it
+      // quietly would let her draw a connection that does nothing — the same
+      // silently-wrong-compile class the `rel` discriminator exists to stop.
+      emit(ctx, "edge_not_expressible", "blocking", { edge_id: e.id },
+        { from_primitive: from, to_primitive: to },
+        { op: "set_edge_config", edge_id: e.id, key: "rel", value: null });
     }
   }
   return roles;
@@ -224,6 +310,8 @@ function checkGraph(ctx: Ctx): void {
   // Reachability traverses fail edges — an outbound channel is only ever
   // reachable through one. Cycle detection below does not. Two different
   // traversals over the same graph; they must not share a visited set.
+  const described = (n: Node) => askableConditions.described(n, g);
+
   const reachable = reachableFrom(sources, g.edges);
   for (const n of g.nodes) {
     if (!reachable.has(n.id)) {
@@ -233,7 +321,8 @@ function checkGraph(ctx: Ctx): void {
       // carries a real mutation, so every comment is still an edit.
       emit(ctx, "unreachable_node", "blocking", { node_id: n.id },
         { candidates: sources },
-        { op: "add_edge", edge: { id: `e_in_${n.id}`, from: null, to: n.id, config: {} } });
+        { op: "add_edge", edge: { id: `e_in_${n.id}`, from: null, to: n.id, config: {} } },
+        described(n));
     }
   }
 
@@ -244,7 +333,7 @@ function checkGraph(ctx: Ctx): void {
   for (const n of g.nodes) {
     if (!productive.has(n.id)) {
       emit(ctx, "no_terminal_path", "blocking", { node_id: n.id }, { terminals },
-        { op: "delete_node", node_id: n.id });
+        { op: "delete_node", node_id: n.id }, described(n));
     }
   }
 
@@ -263,7 +352,65 @@ function checkGraph(ctx: Ctx): void {
       // which one is hers to say.
       emit(ctx, "unbound_policy", "blocking", { node_id: p.id },
         { candidates: g.byPrimitive("artifact").map((a) => a.id) },
-        { op: "add_edge", edge: { id: `e_read_${p.id}`, from: null, to: p.id, config: {} } });
+        { op: "add_edge", edge: { id: `e_read_${p.id}`, from: null, to: p.id, config: {} } },
+        described(p));
+    }
+  }
+
+  /**
+   * Nothing this process sends may be sent to the place its work arrives from.
+   *
+   * An edge pointing at a channel that also feeds the process makes it talk to
+   * itself: the generated agent polls that mailbox AND posts into it, so its
+   * own messages come back as new work. It also forces one channel to carry
+   * both `match` and `request`, which are answers to two different questions.
+   *
+   * Both send edges are covered. A fail edge does it per failing record; a
+   * report edge does it once at the end. The loop is the same either way, and
+   * limiting the check to fail edges would have let the second one through the
+   * moment reports existed.
+   *
+   * This is caught here rather than in a prompt on purpose. Pass B proposing
+   * such an edge cannot survive validation regardless of how the prompt is
+   * worded, and prompt discipline is the weaker of the two guarantees.
+   */
+  for (const c of g.byPrimitive("channel")) {
+    const isSource = g.outboundOf(c.id, "artifact").length > 0;
+    const sendInto = g.incoming(c.id).filter((e) => {
+      const from = g.primitiveOf(e.from);
+      return from === "policy" || from === "output";
+    });
+    if (isSource && sendInto.length > 0) {
+      emit(ctx, "channel_talks_to_itself", "blocking", { edge_id: sendInto[0].id },
+        { channel: c.id },
+        { op: "set_edge_config", edge_id: sendInto[0].id, key: "on", value: null },
+        false);
+    }
+  }
+
+  /**
+   * Two cards with the same name.
+   *
+   * Legal — ids are distinct and the graph compiles — but every question the
+   * review agent asks refers to things by the label she typed, and the playback
+   * of a resolved check is deliberately written in those labels too. Two cards
+   * sharing a name makes all of that ambiguous, and only she can say which is
+   * which. Advisory, because the spec is fine; ranked structurally, because
+   * leaving it produces rounds of questions she cannot answer confidently.
+   */
+  const byLabel = new Map<string, NodeId[]>();
+  for (const n of g.nodes) {
+    const k = n.label.trim().toLowerCase();
+    if (!k) continue;
+    byLabel.set(k, [...(byLabel.get(k) ?? []), n.id]);
+  }
+  for (const ids of byLabel.values()) {
+    if (ids.length < 2) continue;
+    // Anchored to the later ones: the first keeps the name it had.
+    for (const id of ids.slice(1)) {
+      emit(ctx, "duplicate_label", "structural", { node_id: id },
+        { count: ids.length, others: ids.filter((x) => x !== id) },
+        { op: "rename_node", node_id: id, label: null });
     }
   }
 
@@ -398,6 +545,12 @@ function structuralCorrections(ctx: Ctx): void {
         (e) => (e.from === a.id && e.to === b.id) || (e.from === b.id && e.to === a.id),
       );
       if (related) continue;
+
+      // Sharing an identity key means these are two records that pair up, and
+      // `undeclared_join` is already asking her to connect them. Proposing a
+      // merge as well would be contradictory advice about the same two nodes.
+      const ka = a.config.identity_key, kb = b.config.identity_key;
+      if (ka && ka === kb) continue;
 
       const fa = [...fieldsOf(a)].sort().join("|");
       const fb = [...fieldsOf(b)].sort().join("|");

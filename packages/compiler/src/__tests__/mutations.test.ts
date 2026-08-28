@@ -8,7 +8,7 @@ import { apply, fill, validate, MutationError } from "../mutations.js";
 import type { Board, Edge, Node, Primitive } from "../types.js";
 
 const node = (id: string, primitive: Primitive, config: Record<string, unknown> = {}): Node => ({
-  id, primitive, label: id, config,
+  id, primitive, label: id, config: { describes: `what ${id} is`, ...config },
 });
 const edge = (id: string, from: string, to: string, config: Record<string, unknown> = {}): Edge => ({
   id, from, to, config,
@@ -65,12 +65,19 @@ describe("validation gates what reaches the board", () => {
 });
 
 describe("each finding's own mutation resolves it", () => {
-  it("missing_required_key — filling the key clears the finding", () => {
+  it("missing_required_key — filling the key clears that finding", () => {
     const b = cleanBoard();
-    b.nodes[1].config = {};
-    const f = elaborate(b).findings.find((x) => x.code === "missing_required_key")!;
+    // Only the values are missing; she has already said what the thing is.
+    // (Wiping the whole config would leave `describes` missing too, and this
+    // test is about one key at a time.)
+    delete (b.nodes[1].config as Record<string, unknown>).fields;
+
+    const f = elaborate(b).findings.find((x) => x.evidence.key === "fields")!;
+    expect(f).toBeDefined();
+
     const after = apply(b, fill(f.mutation, ["f1", "f2"]));
-    expect(elaborate(after).findings.map((x) => x.code)).not.toContain("missing_required_key");
+    const left = elaborate(after).findings.filter((x) => x.evidence.key === "fields");
+    expect(left).toEqual([]);
   });
 
   it("undeclared_join — the offered edge clears it", () => {

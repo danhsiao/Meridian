@@ -10,7 +10,15 @@
     "test": "npm run test --workspaces --if-present",
     "typecheck": "tsc -b",
     "lint:nouns": "node tools/check-nouns.mjs",
-    "check": "npm run lint:nouns && npm run typecheck && npm test"
+    "check": "npm run lint:nouns && npm run typecheck && npm test",
+    "seed:sql": "node tools/seed-sql.mjs",
+    "db:start": "supabase start",
+    "dev": "npm run dev --workspace @engine/web",
+    "env:local": "bash tools/write-env.sh",
+    "db:seed": "node tools/seed-sql.mjs && supabase db reset",
+    "doctor": "node tools/doctor.mjs",
+    "worker": "npm run start --workspace @engine/review-worker",
+    "db:seed:examples": "node tools/seed-sql.mjs --examples && supabase db reset"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

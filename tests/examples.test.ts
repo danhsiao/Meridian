@@ -1,19 +1,19 @@
 // The generality proof as a test rather than a screenshot.
 //
 // Two boards from unrelated industries go through the SAME compiler, the SAME
-// registry and the SAME freeze, and both reach a stable hash. Nothing in
-// packages/compiler knows either domain exists — the noun lint enforces that
-// separately, and these boards are where the nouns are allowed to live.
+// registry and the SAME freeze, and both reach a stable hash.
+//
+// This lives in tests/ rather than packages/compiler/ on purpose: it is an
+// integration test over real domain boards, so it necessarily names domain
+// things. The compiler's own tests use synthetic ids and stay noun-free, and
+// the noun lint enforces that boundary by scanning the engine and not this.
 
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { blockingFindings, elaborate } from "../elaborate.js";
-import { freeze } from "../freeze.js";
-import { apply, fill } from "../mutations.js";
-import { render } from "../render.js";
-import type { Board, Finding } from "../types.js";
+import { apply, blockingFindings, elaborate, fill, freeze, render } from "@engine/compiler";
+import type { Board, Finding } from "@engine/compiler";
 
-const EXAMPLES = new URL("../../../../examples/", import.meta.url);
+const EXAMPLES = new URL("../examples/", import.meta.url);
 
 function load(name: string): Board {
   const raw = JSON.parse(readFileSync(new URL(name, EXAMPLES), "utf8"));
@@ -127,13 +127,13 @@ describe("the draft board — what she actually draws", () => {
 
   it("finds every mistake the demo depends on", () => {
     const codes = new Set(elaborate(draft).findings.map((f) => f.code));
-    // five boxes that should be five fields
+    // boxes that should be fields
     expect(codes).toContain("demote_to_field");
-    // an invoice arriving in two inboxes with nothing to merge it on
+    // one record arriving from two channels with nothing to merge it on
     expect(codes).toContain("missing_conditional_key");
-    // two checks described in English and never formalised
+    // checks described in English and never formalised
     expect(codes).toContain("unresolved_policy");
-    // a batch and a certificate keyed the same way, never connected
+    // two records keyed the same way, never connected
     expect(codes).toContain("undeclared_join");
   });
 
@@ -152,8 +152,11 @@ describe("the draft board — what she actually draws", () => {
     expect(demotes).toHaveLength(5);
   });
 
-  it("renders every finding as a question with no type-system vocabulary in it", () => {
-    for (const f of elaborate(draft).findings) {
+  it("renders every question with no type-system vocabulary in it", () => {
+    // Status findings are refused by render() — they are a marker on the card,
+    // not a pin, because the compiler has no basis for the options it would
+    // have to invent.
+    for (const f of elaborate(draft).findings.filter((x) => x.askable)) {
       const r = render(f, draft);
       expect(r.body.length).toBeGreaterThan(0);
       for (const jargon of ["required_if", "missing_conditional_key", "verdict_on", "identity_key"]) {
@@ -186,15 +189,23 @@ describe("the draft board — what she actually draws", () => {
 
     // the five phantom nodes are gone, and their checks moved to the parent
     expect(board.nodes.map((n) => n.id)).not.toContain("a_hts");
-    // As a SET: the order the fields land in follows the order the comments
-    // were answered, which is deliberate. Two people answering the same board
-    // in a different order get the same process and a different hash — the
-    // same way two people drawing it get different node ids. What has to hold
-    // is that one answer sequence always produces one hash, which the next
-    // test pins down.
-    expect(new Set(board.nodes.find((n) => n.id === "rec_good")!.config.fields as string[])).toEqual(
-      new Set(["hts", "fda_product_code", "anda", "reg_no", "ndc"]),
-    );
+    // Derived from the draft, not hardcoded: every child that got demoted
+    // should now be a field on the parent that contained it. Asserting the
+    // RELATIONSHIP rather than a fixed list is both stronger and keeps the
+    // expectation honest if the example board changes.
+    const demoted = elaborate(draft).findings.filter((f) => f.code === "demote_to_field");
+    const expectedFields = new Set(demoted.map((f) => String(f.evidence.field)));
+    const parents = new Set(demoted.map((f) => String(f.evidence.parent)));
+    expect(parents.size).toBe(1);
+    const parentId = [...parents][0];
+    const actual = new Set(board.nodes.find((n) => n.id === parentId)!.config.fields as string[]);
+    for (const f of expectedFields) expect(actual).toContain(f);
+    // As a set, because the order the fields land in follows the order the
+    // comments were answered. Two people answering the same board in a
+    // different order get the same process and a different hash — the same way
+    // two people drawing it get different node ids. What has to hold is that
+    // one answer sequence always produces one hash, which the next test pins.
+    expect(actual.size).toBe(expectedFields.size);
   });
 
   it("converging twice from the same draft lands on the same hash", () => {

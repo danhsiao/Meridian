@@ -6,6 +6,8 @@
   "main": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./client": "./src/client.ts",
+    "./graph": "./src/graph.ts",
     "./registry.json": "./registry.json"
   },
   "scripts": {

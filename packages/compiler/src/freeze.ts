@@ -43,6 +43,8 @@ export function freeze(board: Board, opts: FreezeOptions): FreezeResult {
       code: "open_comment",
       severity: "blocking",
       rank: "blocking",
+      // Circular as a comment: it would be a pin saying a pin is unanswered.
+      askable: false,
       anchor: { node_id: id },
       evidence: { comment_id: id },
       mutation: { op: "set_config_key", node_id: id, key: "status", value: "resolved" },

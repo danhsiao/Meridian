@@ -8,8 +8,12 @@
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, extname } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const ROOT = new URL("..", import.meta.url).pathname;
+// fileURLToPath, not .pathname: .pathname percent-encodes, so a space in the
+// checkout path yields a directory that does not exist — and because walk()
+// tolerates a missing directory, the lint would pass while scanning nothing.
+const ROOT = fileURLToPath(new URL("..", import.meta.url));
 
 // Scanned: the engine. Not scanned: processes/, examples/, docs/, evals fixtures.
 const SCAN = ["packages", "runtime", "apps", "skills", "cli", "tools"];
@@ -19,8 +23,13 @@ const DENY = [
   "shipment", "container", "pharma", "pre-alert", "prealert", "rosuvastatin",
 ];
 
+const SELF = fileURLToPath(import.meta.url);
+
 const EXT = new Set([".ts", ".tsx", ".js", ".mjs", ".cjs", ".py", ".json", ".jsonc", ".sql", ".md", ".j2"]);
-const SKIP_DIR = new Set(["node_modules", "dist", ".git", "__pycache__", ".venv", ".pytest_cache"]);
+const SKIP_DIR = new Set([
+  "node_modules", "dist", ".git", "__pycache__", ".venv", ".pytest_cache",
+  ".next", "out",  // build output: bundled third-party code, not ours
+]);
 
 // A denied word only counts as a whole word. `batch` is a domain noun;
 // `batched` in a comment about request batching is not what we're hunting,
@@ -39,7 +48,7 @@ function* walk(dir) {
     if (SKIP_DIR.has(name)) continue;
     const full = join(dir, name);
     if (statSync(full).isDirectory()) yield* walk(full);
-    else if (EXT.has(extname(full))) yield full;
+    else if (full !== SELF && EXT.has(extname(full))) yield full;  // a scanner cannot scan its own denylist
   }
 }
 
