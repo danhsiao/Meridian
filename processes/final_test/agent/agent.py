@@ -2,7 +2,7 @@
 
     process:   final_test
     spec_hash: sha256:cce7715b9c8d74889263c3f699f456ac68bc2ca0803d3d42536f31d904f196fe
-    topo:      cha_1 -> art_1 -> art_2 -> art_3 -> art_4 -> pol_1 -> pol_2 -> out_1
+    topo:      ['cha_1', 'art_1', 'art_2', 'art_3', 'art_4', 'pol_1', 'pol_2', 'out_1']
 
 Regenerate with `cli gen --process final_test`.
 
@@ -32,10 +32,9 @@ def run(payloads: list[dict[str, Any]], spec_path: str) -> dict[str, Any]:
     items = [Payload.from_dict(p) if isinstance(p, dict) else p for p in payloads]
     payload_of = {p.id: p for p in items}
 
-    # ── cha_1 (channel, tool="composio.gmail") ─────────────────────────────
+    # ── cha_1 (channel, tool=composio.gmail) ─────────────────────────────
     # Payloads arrive already fetched: the caller decides live or replay, so the
     # same agent serves a demo run and a deterministic eval.
-
 
     # ── art_1 (artifact, from the payload) ─────────────────────────
     _config = spec.config("art_1")
@@ -54,7 +53,6 @@ def run(payloads: list[dict[str, Any]], spec_path: str) -> dict[str, Any]:
                 parent_id=_parent.record_id if _parent else None,
             ))
 
-
     # ── art_2 (artifact, from the payload) ─────────────────────────
     _config = spec.config("art_2")
     _parent_id = "art_1"
@@ -71,7 +69,6 @@ def run(payloads: list[dict[str, Any]], spec_path: str) -> dict[str, Any]:
                 extraction_hint=_config.get("extraction_hint"),
                 parent_id=_parent.record_id if _parent else None,
             ))
-
 
     # ── art_3 (artifact, from the payload) ─────────────────────────
     _config = spec.config("art_3")
@@ -90,8 +87,7 @@ def run(payloads: list[dict[str, Any]], spec_path: str) -> dict[str, Any]:
                 parent_id=_parent.record_id if _parent else None,
             ))
 
-
-    # ── art_4 (artifact, inside "art_2") ─────────────────────
+    # ── art_4 (artifact, inside art_2) ─────────────────────
     # Nested a level deeper, so the extraction has to say which parent it
     # belongs to or it returns every row in the payload for every parent.
     _config = spec.config("art_4")
@@ -104,8 +100,7 @@ def run(payloads: list[dict[str, Any]], spec_path: str) -> dict[str, Any]:
             parent_id=_parent.record_id,
         ))
 
-
-    # ── pol_1 (policy: present, verdict on "art_4") ─────────────
+    # ── pol_1 (policy: present, verdict on art_4) ─────────────
     _config = spec.config("pol_1")
     _relation = _config["check"]["relation"]
     for _record in state.records("art_4"):
@@ -115,8 +110,7 @@ def run(payloads: list[dict[str, Any]], spec_path: str) -> dict[str, Any]:
             _ok = relations.present(_values)
         state.verdict("pol_1", "art_4", _record, _ok, f"present over {_config['reads']}")
 
-
-    # ── pol_2 (policy: exists_matching, verdict on "art_2") ─────
+    # ── pol_2 (policy: exists_matching, verdict on art_2) ─────
     _config = spec.config("pol_2")
     _subject_path, _candidate_path = _config["reads"]
     _candidates = state.values(_candidate_path)
@@ -127,19 +121,11 @@ def run(payloads: list[dict[str, Any]], spec_path: str) -> dict[str, Any]:
             # `squash` rather than exact equality: the two sides are transcribed
             # from different documents. The comparison is passed into the
             # relation, so the engine's definition of a match is untouched.
-            # HEAL PASS 1 (logic-failure). The subject field can hold several
-            # values in one string -- the board models this as a field on the
-            # parent rather than as its own artifact, so a one-to-many arrives
-            # comma-joined. Comparing the joined string against a single
-            # candidate never matches. Split, and require every part to match.
-            _parts = [_p for _p in str(_subject).split(",") if _p.strip()]
-            _ok = all(relations.exists_matching(_p, _candidates, key=squash) for _p in _parts)
+            _ok = relations.exists_matching(_subject, _candidates, key=squash)
         state.verdict("pol_2", "art_2", _record, _ok, f"exists_matching on {_candidate_path}")
-
 
     # ── out_1 (output) ─────────────────────────────────────────────
     OUTPUT_NODE = "out_1"
-
 
     return {
         "outputs": outputs.rows(state, spec.config(OUTPUT_NODE).get("rows", [])),

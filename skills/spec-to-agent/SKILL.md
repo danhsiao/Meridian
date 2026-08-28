@@ -1,59 +1,64 @@
 ---
 name: spec-to-agent
-description: Generate a runnable agent from a frozen spec. Use when a board has been frozen and needs code — invoked as `cli gen --process <id>`. Reads the frozen spec and the runtime API surface, emits processes/<id>/agent/, and runs the lint on its own output.
+description: Generate a runnable agent from a frozen spec. Invoked by `cli gen --process <id>`, which places spec.json, RUNTIME_API.md and TEMPLATES.md in a working directory and asks for agent.py. Read only those files.
 ---
 
 # spec-to-agent
 
 Turn a frozen spec into a runnable agent.
 
-## Your input is the frozen spec and nothing else
+## Your input is the frozen spec and the runtime surface. Nothing else.
 
-Not the project README. Not the domain framing. Not an example from the process
-you are generating. If you find yourself needing to know what the business does
+Two files, and they are both in your working directory: `spec.json` and
+`RUNTIME_API.md`. That is deliberate and it is the property under test.
+
+Not the project README. Not the design document. Not the conversation that
+produced the board. Not an example from the process you are generating. If you find yourself needing to know what the business does
 in order to emit correct code, **stop and say so** — that means the spec is
 insufficient, and the spec being sufficient is precisely the property under test
 here.
 
-The worked example at the bottom of this file uses a synthetic spec (`a1`, `p1`,
-`f1`) for the same reason. An example drawn from a real industry would pass the
-noun lint if phrased carefully and still teach you that industry.
+Every example you will see — the templates in `TEMPLATES.md` and the worked
+example at the bottom of this file — uses a synthetic spec (`a1`, `p1`, `f1`)
+for the same reason. An example drawn from a real industry would pass the noun
+lint if phrased carefully and still teach you that industry.
 
 ## What generation is, and what it is not
 
-Two things happen when a board becomes code, and keeping them apart is the whole
-design:
+**You write `agent.py`.** A model runs in this path — that is the point of it
+being a skill. The consequence is stated plainly rather than hidden: the same
+frozen spec can produce different code across two runs. `spec_hash` still
+identifies the *input* exactly, and `verify_generated.py` still constrains the
+*output*, but byte-identical regeneration is not a property this system has.
 
-- **`cli gen` is deterministic template-filling.** Same spec in, byte-identical
-  code out. That is what keeps `spec_hash` meaningful — a build ID that named a
-  different program on each invocation would not be a build ID. There is no
-  model in that path at all. The mechanism is `cli/gen.py` plus
-  `templates/*.py.j2`, and the substitution is deliberately dumb: `{{key}}`
-  replacement with no expressions and no control flow, so no structural decision
-  can migrate out of the compiled block and into a template.
+That is why the lint matters more here than it would against a template filler,
+and why the constraints below are absolute rather than stylistic.
 
-- **You are the judgment layer.** You read the spec, read the runtime surface,
-  confirm each node maps to a template, run the generator, read the lint output,
-  and handle what the templates do not cover. When a node needs a template that
-  does not exist, you say which template and which runtime verb are missing —
-  you do not improvise code into the output.
+**The templates in `TEMPLATES.md` are the shapes to emit.** They exist so you
+see the intended structure rather than inventing one. Fill their placeholders
+from the spec and change nothing else about their structure.
+
+**A hand-written reference agent exists** at `processes/<id>/reference/agent.py`
+for at least one process, and generated output is diffed against it. That diff
+has already caught one real bug — a template chosen on whether a parent *exists*
+rather than on whether the parent *has fields*. Assume your output will be read
+that closely.
 
 ## Steps
 
-1. **Read the frozen spec** at `processes/<id>/spec.json`. Read `compiled` in
-   particular: `topo_order`, `loop_scopes`, `verdict_targets`, `joins`,
+1. **Read `spec.json`.** Read `compiled` in particular: `topo_order`,
+   `loop_scopes`, `verdict_targets`, `joins`, `identity_merges`,
    `fail_handlers`.
-2. **Read the runtime API surface** — `runtime/relations.py`,
-   `runtime/outputs.py`, `runtime/state.py`, `runtime/extract.py`,
-   `runtime/guards.py`. These are the only verbs generated code may call.
-3. **Check every node has a template.** Each `policy` needs its
-   `check.relation` (or its `impl`) to map to a file in `templates/`. Each
-   `output.fn` needs an entry in `runtime/outputs.FUNCTIONS`. A gap here is a
-   report, not an improvisation.
-4. **Run `cli gen --process <id>`.**
-5. **Read the `verify_generated` output.** If it fails, regenerate — do not
-   patch. A generated module that was hand-edited to pass a lint is no longer
-   traceable to a spec hash, which is the one property the whole pipeline sells.
+2. **Read `RUNTIME_API.md`.** These are the only verbs your code may call.
+3. **Read `TEMPLATES.md`.** Map every node in `topo_order` to one template.
+   Each `policy` maps by its `check.relation`, or by having an `impl`. If a node
+   maps to no template, **write nothing and say which template is missing.**
+   Do not improvise a shape.
+4. **Write `agent.py`** into the working directory: the module shell, then one
+   step per `topo_order` entry, in order.
+5. **Stop.** The caller runs `verify_generated.py`. If it fails you will be
+   asked again with the findings; regenerate the file, do not patch around
+   them.
 
 ## Rules
 
@@ -61,9 +66,12 @@ These are verbatim constraints, not guidance.
 
 - **One step per `topo_order` entry, in order.** Never reorder, never infer a
   dependency, never skip a node.
-- **Look up the template from the node's primitive and enum value; fill it from
-  `node.config`.** The template set and the registry extend together or not at
-  all.
+- **Look up the template from `compiled.templates[node_id]` when the spec
+  carries it; otherwise from the node's `primitive` and its enum value
+  (`check.relation`, `output.fn`).** `registry_version` 1.0 specs do not emit
+  `compiled.templates`, so the second route is the live one today. Fill the
+  template from `node.config`. The template set and the registry extend together
+  or not at all.
 - **Never ask whether an edge is a join. Never sort. Never work out nesting.**
   `edge_roles`, `joins`, `loop_scopes` and `verdict_targets` are already
   resolved. Re-deriving any of them at generation time means two components can
@@ -90,12 +98,6 @@ and `outputs.py`, and reimplementing one inside generated code is caught by
 The single exception is a pasted `impl` body. That is the one legal way for
 logic to appear, and it is checked as a string comparison rather than a
 judgment call.
-
-## Generate every frozen spec, not just the interesting one
-
-Two agents emitted from the same templates and diffable side by side is the
-strongest available evidence that this is an engine and not one process with
-extra steps. It costs one extra command.
 
 ## Worked example — a synthetic spec
 

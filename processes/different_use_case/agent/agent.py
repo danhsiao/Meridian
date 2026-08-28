@@ -2,7 +2,7 @@
 
     process:   different_use_case
     spec_hash: sha256:1203f48fde2f952b46422f1622a6c63e89cc2d3bad227cf80c1ec273d3c2ea89
-    topo:      cha_3 -> art_1 -> art_2 -> pol_1 -> out_1 -> cha_2
+    topo:      ['cha_3', 'art_1', 'art_2', 'pol_1', 'out_1', 'cha_2']
 
 Regenerate with `cli gen --process different_use_case`.
 
@@ -32,10 +32,9 @@ def run(payloads: list[dict[str, Any]], spec_path: str) -> dict[str, Any]:
     items = [Payload.from_dict(p) if isinstance(p, dict) else p for p in payloads]
     payload_of = {p.id: p for p in items}
 
-    # ── cha_3 (channel, tool="composio.gmail") ─────────────────────────────
+    # ── cha_3 (channel, tool=composio.gmail) ─────────────────────────────
     # Payloads arrive already fetched: the caller decides live or replay, so the
     # same agent serves a demo run and a deterministic eval.
-
 
     # ── art_1 (artifact, from the payload) ─────────────────────────
     _config = spec.config("art_1")
@@ -54,7 +53,6 @@ def run(payloads: list[dict[str, Any]], spec_path: str) -> dict[str, Any]:
                 parent_id=_parent.record_id if _parent else None,
             ))
 
-
     # ── art_2 (artifact, from the payload) ─────────────────────────
     _config = spec.config("art_2")
     _parent_id = "cha_3"
@@ -72,8 +70,7 @@ def run(payloads: list[dict[str, Any]], spec_path: str) -> dict[str, Any]:
                 parent_id=_parent.record_id if _parent else None,
             ))
 
-
-    # ── pol_1 (policy: equals, verdict on "art_2") ────────
+    # ── pol_1 (policy: equals, verdict on art_2) ────────
     _config = spec.config("pol_1")
     _left_path, _right_path = _config["reads"]
     for _record in state.records("art_2"):
@@ -86,15 +83,12 @@ def run(payloads: list[dict[str, Any]], spec_path: str) -> dict[str, Any]:
             _ok = relations.equals(_left, _right)
         state.verdict("pol_1", "art_2", _record, _ok, "equals")
 
-
     # ── out_1 (output) ─────────────────────────────────────────────
     OUTPUT_NODE = "out_1"
 
-
-    # ── cha_2 (channel, tool="composio.gmail") ─────────────────────────────
+    # ── cha_2 (channel, tool=composio.gmail) ─────────────────────────────
     # Payloads arrive already fetched: the caller decides live or replay, so the
     # same agent serves a demo run and a deterministic eval.
-
 
     return {
         "outputs": outputs.rows(state, spec.config(OUTPUT_NODE).get("rows", [])),
