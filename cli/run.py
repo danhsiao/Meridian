@@ -16,7 +16,7 @@ from runtime import env
 from runtime.channels.capture import CaptureChannel
 from runtime.channels.replay import ReplayChannel
 
-from .paths import captured_dir, fixtures_dir, spec_path
+from .paths import captured_dir, fixtures_dir, reports_dir, spec_path
 
 
 def _payloads(process_id: str) -> list[dict[str, Any]]:
@@ -60,7 +60,16 @@ def run_process(process_id: str, live: bool = False) -> int:
     else:
         print("  mode: LIVE -- outbound sends will be delivered")
 
-    print("  start a worker first:  python -m runtime.worker")
     result = asyncio.run(_execute(process_id, live))
+
+    # The run is the artifact, so it lands on disk next to the eval report
+    # rather than only on a terminal that scrolls away.
+    reports_dir(process_id).mkdir(parents=True, exist_ok=True)
+    path = reports_dir(process_id) / "run.json"
+    path.write_text(json.dumps(result, indent=2, default=str))
+
     print(json.dumps(result.get("outputs", {}), indent=2))
+    records = result.get("extracted_state", {}).get("records", {})
+    print("\n  records: " + ", ".join(f"{n}={len(r)}" for n, r in records.items()))
+    print(f"  written: {path}")
     return 0
