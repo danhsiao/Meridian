@@ -163,6 +163,11 @@ export function fill(m: Mutation, answer: unknown): Mutation {
       else if (edge.to === HOLE && typeof answer === "string") edge.to = answer;
       return { ...m, edge };
     }
+    // "which record does this count?" — her answer is the row's target.
+    case "add_output_row":
+      return m.row.of == null && typeof answer === "string"
+        ? { ...m, row: { ...m.row, of: answer } }
+        : m;
     default:
       return m;
   }
@@ -208,11 +213,27 @@ export function apply(board: Board, m: Mutation): Board {
     case "demote_to_field":
       return demoteToField(board, m.node_id, m.parent_id, m.field, m.rewire_policies);
 
+    /**
+     * Upsert by label, not append.
+     *
+     * A result is identified by what it is called. Appending meant the finding
+     * for a row missing its target proposed adding that same broken row again,
+     * so answering the question duplicated the problem instead of fixing it —
+     * one board reached fourteen rows that were seven results written twice,
+     * each still unanswerable.
+     *
+     * Replacing also makes the question idempotent: answering it twice leaves
+     * one row, which is what anyone would expect from "count this instead".
+     */
     case "add_output_row":
-      return mapNode(board, m.node_id, (n) => ({
-        ...n,
-        config: { ...n.config, rows: [...asRows(n.config.rows), m.row] },
-      }));
+      return mapNode(board, m.node_id, (n) => {
+        const rows = asRows(n.config.rows);
+        const at = rows.findIndex(
+          (r) => String((r as { label?: unknown }).label ?? "") === String(m.row.label ?? ""),
+        );
+        const next = at === -1 ? [...rows, m.row] : rows.map((r, i) => (i === at ? m.row : r));
+        return { ...n, config: { ...n.config, rows: next } };
+      });
 
     case "record_elicited":
       // The one mutation that does NOT unblock the build. It writes the draft

@@ -51,8 +51,26 @@ export const nodeConditions: Record<string, NodeCondition> = {
   // ── artifact ─────────────────────────────────────────────────────────
   // The same record can arrive twice, so it needs a key to merge on.
   multiple_sources: (n, g) => g.incoming(n.id).length > 1,
-  // Built from several parents, so something has to say which rows combine.
-  multiple_inbound_artifacts: (n, g) => g.inboundArtifacts(n.id).length > 1,
+  /**
+   * Built from several parents, so something has to say which rows combine.
+   *
+   * Counts only the edges that CONTRIBUTE records — containment and
+   * `builds_from`. A `pairs_with` edge is a lookup that runs against records
+   * already extracted; it adds no second source, so it cannot create the
+   * ambiguity `pair_on` exists to settle.
+   *
+   * Counting it produced a question with no answer: a record contained by one
+   * parent and paired with another read as having two sources, `pair_on` was
+   * required, and its option source is the fields those two share — which for a
+   * containment parent and a join partner is routinely empty. render() then
+   * threw EmptyOptionSet, so the board carried a blocking finding that could
+   * never be asked and never be cleared.
+   */
+  multiple_inbound_artifacts: (n, g) =>
+    g.incoming(n.id).filter((e) => {
+      const from = g.node(e.from);
+      return from?.primitive === "artifact" && e.config?.rel !== "pairs_with";
+    }).length > 1,
   /**
    * A record with no child records must carry values of its own, or nothing is
    * ever extracted from it. One that DOES contain child records need not: the

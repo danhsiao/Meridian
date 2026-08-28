@@ -105,7 +105,7 @@ async function handle(runId: string): Promise<void> {
     // is what turns a transient auto-close into a question that can never be
     // posed a second time.
     const seen = await client.query(
-      `select code, node_id, edge_id, mutation->>'key' as key from comments
+      `select code, node_id, edge_id, coalesce(mutation->>'key', mutation->'row'->>'label') as key from comments
         where map_id = $1
           and coalesce(answer->>'resolved_directly', 'false') <> 'true'`,
       [mapId],

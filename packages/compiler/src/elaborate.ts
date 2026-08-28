@@ -530,9 +530,12 @@ function checkOutputRows(ctx: Ctx, dag: DataDag): void {
        * one — so this is a question she can answer, not a status.
        */
       if (!of) {
+        // The row carries a hole where its target goes, so `fill` can put her
+        // answer there and the applier replaces the row rather than adding a
+        // second broken copy of it.
         emit(ctx, "output_row_unresolvable", "blocking", { node_id: o.id },
           { row: row.label, reason: "no target", of: null },
-          { op: "add_output_row", node_id: o.id, row });
+          { op: "add_output_row", node_id: o.id, row: { ...row, of: null } });
         continue;
       }
       const { node, field } = splitPath(of);

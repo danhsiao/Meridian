@@ -207,3 +207,49 @@ describe("record_elicited is the one mutation that does not unblock", () => {
     expect(elaborate(after).findings.map((x) => x.code)).toContain("unresolved_policy");
   });
 });
+
+describe("an output row is identified by its label", () => {
+  const outputBoard = (): Board => ({
+    nodes: [
+      node("a1", "artifact", { fields: ["f1"] }),
+      node("o1", "output", { rows: [{ label: "how many", fn: "count" }] }),
+    ],
+    edges: [],
+  });
+
+  it("answering the question replaces the row rather than adding a second copy", () => {
+    // Appending meant the finding for a row missing its target proposed adding
+    // that same broken row again, so answering duplicated the problem. One
+    // board reached fourteen rows that were seven results written twice.
+    const m = {
+      op: "add_output_row" as const,
+      node_id: "o1",
+      row: { label: "how many", fn: "count", of: null },
+    };
+    const answered = fill(m, "a1");
+    const after = apply(outputBoard(), answered);
+    const rows = (after.nodes[1].config.rows as any[]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ label: "how many", fn: "count", of: "a1" });
+  });
+
+  it("is idempotent — answering twice still leaves one row", () => {
+    const m = {
+      op: "add_output_row" as const,
+      node_id: "o1",
+      row: { label: "how many", fn: "count", of: "a1" },
+    };
+    const once = apply(outputBoard(), m);
+    const twice = apply(once, m);
+    expect((twice.nodes[1].config.rows as any[])).toHaveLength(1);
+  });
+
+  it("still appends a row with a label nothing else uses", () => {
+    const m = {
+      op: "add_output_row" as const,
+      node_id: "o1",
+      row: { label: "something else", fn: "count", of: "a1" },
+    };
+    expect((apply(outputBoard(), m).nodes[1].config.rows as any[])).toHaveLength(2);
+  });
+});

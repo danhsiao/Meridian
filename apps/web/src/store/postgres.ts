@@ -472,7 +472,7 @@ async function reconcileComments(client: PoolClient, mapId: string): Promise<num
   );
 
   const open = await client.query(
-    `select id, code, node_id, edge_id, pass, mutation, mutation->>'key' as key
+    `select id, code, node_id, edge_id, pass, mutation, coalesce(mutation->>'key', mutation->'row'->>'label') as key
        from comments where map_id = $1 and status in ('open','answered')`,
     [mapId],
   );
