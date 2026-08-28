@@ -19,6 +19,17 @@ venv/
 
 # run output, regenerated every eval — never hand-edited
 processes/*/captured/
+processes/*/reports/
+
+# Snapshotted channel payloads. Regenerated output, like captured/ and .cache/,
+# NOT source: `cli fetch --process <id> --live` rebuilds them in about a minute
+# and the demo runbook already has that as step 3.
+#
+# Kept out of version control because they are a verbatim copy of a real inbox —
+# real commercial documents and the work addresses of several hundred named
+# people at third-party companies. None of that is ours to publish, and this
+# repository is public.
+processes/*/fixtures/
 
 .DS_Store
 .cache/
