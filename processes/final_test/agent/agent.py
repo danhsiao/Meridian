@@ -24,8 +24,6 @@ from runtime.spec import Spec
 from runtime.state import RunState
 
 
-
-
 def run(payloads: list[dict[str, Any]], spec_path: str) -> dict[str, Any]:
     spec = Spec.load(spec_path)
     state = RunState()
@@ -121,12 +119,17 @@ def run(payloads: list[dict[str, Any]], spec_path: str) -> dict[str, Any]:
             # `squash` rather than exact equality: the two sides are transcribed
             # from different documents. The comparison is passed into the
             # relation, so the engine's definition of a match is untouched.
-            _ok = relations.exists_matching(_subject, _candidates, key=squash)
+            # The batch is modelled as a *field* on the invoice, so a one-to-many
+            # relationship is flattened into one comma-joined string. Split it
+            # back into its real values and require each to match a CoA; the
+            # split and the comparison are both passed in as data, so the
+            # relation is unchanged and this stays inside the process.
+            _parts = [_p for _p in str(_subject).split(",") if _p.strip()]
+            _ok = all(relations.exists_matching(_p, _candidates, key=squash) for _p in _parts)
         state.verdict("pol_2", "art_2", _record, _ok, f"exists_matching on {_candidate_path}")
 
     # ── out_1 (output) ─────────────────────────────────────────────
     OUTPUT_NODE = "out_1"
-
     return {
         "outputs": outputs.rows(state, spec.config(OUTPUT_NODE).get("rows", [])),
         "extracted_state": state.extracted(),

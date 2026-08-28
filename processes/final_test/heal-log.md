@@ -136,3 +136,85 @@ The durable answers, none built yet, are listed in
 [docs/blocks-6-9.md](../../docs/blocks-6-9.md#healing-and-regeneration-are-in-tension-and-nothing-resolves-it-yet).
 Until one exists: **generate first, heal second, and never regenerate without
 re-reading this log.**
+
+
+---
+
+## Pass 2 — reapply the multi-value split; everything else halted again
+
+**Starting score: 3/12** (2 scored passes `MNBU4371364`, `MMAU1407799`; 1
+discarded `MNBU0458316`). New score left blank for the human to fill on re-run.
+
+This pass reads the current `reports/eval.json`, which is the post-regeneration
+report the note above predicted: `agent.py` no longer carries pass 1, so
+`MNBU4407370` is red again with `invoices_failed: 0 → 4`.
+
+### Classification of all nine failures
+
+Metric map: `invoices_total` = count of `art_2`; `invoices_failed/successful` =
+`pol_2` verdicts on `art_2`; `goods_failed` = `pol_1` verdicts on `art_4`;
+`coa_total` = count of `art_3`.
+
+| case | fx | signature | class |
+|---|---|---|---|
+| `MNBU4407370` | 1 | records exact (7/12); only `invoices_failed 0→4` | **logic-failure** — fixable in boundary |
+| `HLBU6302759` | 1 | `coa 9=9` exact; `invoices_total 3→14`; `invoices_failed 0→2` | mixed: `invoices_failed` is the same logic-failure; `invoices_total` is extraction |
+| `MCAU6047165` | 1 | `coa 14=14` exact; `invoices_total 11→18`; `invoices_failed 0→18` | mixed: `invoices_failed` is the logic-failure; `invoices_total` is extraction |
+| `CAAU4056270` | 2 | `coa 5→10` (doubled); `invoices 1→9` | **extraction-failure** — spec-level |
+| `MNBU3974949` | 2 | `coa 17→34` (doubled); `invoices 1→38` | **extraction-failure** — spec-level |
+| `CGMU5630052` | 2 | `coa 3→6` (doubled); `invoices 1→6`; `goods_failed 0→9` | **extraction-failure** — spec-level |
+| `TTNU8982561` | 1 | `invoices 2→9`; `coa 7→9` | **extraction-failure** — spec-level |
+| `MNBU3852977` | 1 | `coa 6=6` exact; `invoices 3→6`; `invoices_failed 3→0`; `goods_failed 6→4` | **extraction-failure** + missing propagation — spec-level |
+| `020-07721814` | 1 | `coa 4→3` (under-extraction); `invoices 3→4`; `invoices_failed 0→1` | **extraction-failure** — spec-level |
+
+### Root cause per case, in one line
+
+- `MNBU4407370` — every `art_2` record extracted exactly (7) and every `art_3`
+  exactly (12); the four invoices marked failed are precisely the four whose
+  `Batch Number` is a comma-joined multi-value string (`"FMB226006A,
+  FMB226007A"` etc.), and `exists_matching` compared the whole joined string to
+  a single CoA number, which can never match. This is the only pure
+  logic-failure and it is fixable in the boundary.
+- `HLBU6302759` / `MCAU6047165` — `coa_total` matches exactly, so `art_3` is
+  right; the `invoices_failed` discrepancy is the same joined-string bug, so the
+  split below removes it. Their `invoices_total` over-count is a separate
+  extraction cause (below) and is *not* fixed here.
+- `CAAU4056270`, `MNBU3974949`, `CGMU5630052` (all 2 fixtures) — `coa_total` is
+  exactly doubled and the two fixtures carry the *same* invoice number; nothing
+  deduplicates because `compiled.identity_merges` is empty and `art_2` has no
+  `identity_key`. Extraction is faithfully returning both copies.
+- `TTNU8982561`, `MNBU3852977`, `020-07721814` — single fixture, yet `art_2`
+  count exceeds the invoice count because the batch is modelled as a field on
+  the invoice: one `art_2` row is emitted per batch line rather than per
+  invoice. `020-07721814` additionally under-extracts one CoA (`coa 4→3`), and
+  `MNBU3852977` expects `invoices_failed: 3` that no run can produce because no
+  edge propagates a good's failure up to its invoice.
+
+### Diff — `pol_2` step of `processes/final_test/agent/agent.py`
+
+```diff
+-            _ok = relations.exists_matching(_subject, _candidates, key=squash)
++            _parts = [_p for _p in str(_subject).split(",") if _p.strip()]
++            _ok = all(relations.exists_matching(_p, _candidates, key=squash) for _p in _parts)
+```
+
+This is pass 1's fix, verbatim in behaviour. It is stricter, not wider — every
+real batch value must match a CoA — so it does not violate "never widen a
+comparison to make a case pass." `runtime/` is untouched; the split and the
+comparison are passed into the relation as data. Expected effect: `MNBU4407370`
+green; `HLBU6302759` and `MCAU6047165` lose their `invoices_failed` discrepancy
+(they stay red on `invoices_total`).
+
+### Halted again — the same four spec-level findings
+
+The eight remaining failures reduce to the four spec-level causes named in pass
+1 (no `identity_key` on `art_2`; batch modelled as a field not an artifact;
+`art_4` field names `ACDA/SDF/EDF` that appear in no document, so `present`
+always fails; no failure-propagation edge from `art_4` to `art_2`), plus the
+trailing-letter ambiguity (`UCB26009` vs `UCB26009A`) that needs a human ruling.
+None is patchable inside `processes/<id>/agent/` without inventing a rule the
+board never gave. **Next action is a review round and a re-freeze, not another
+heal pass.** Per the standing note above, whoever regenerates must re-read this
+log or the split will be discarded a third time.
+
+**Score after re-run: __ / 12** (human fills in).

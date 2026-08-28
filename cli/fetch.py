@@ -59,6 +59,17 @@ def fetch(
         config = spec.config(channel_id)
         channel = registry.resolve(config["tool"])
         match = config.get("match")
+
+        # A snapshot replaces; it does not accumulate. Without this, a re-fetch
+        # against a changed inbox leaves the previous run's payloads on disk
+        # under names the new run never writes, and the eval silently scores a
+        # mixture of two snapshots. Clearing only this channel's files keeps a
+        # multi-channel process's other snapshots intact.
+        stale = sorted(out_dir.glob(f"{channel_id}-*.json"))
+        for path in stale:
+            path.unlink()
+        if stale:
+            print(f"{channel_id}: cleared {len(stale)} payload(s) from the previous snapshot")
         if query is not None:
             print(f"{channel_id}: OVERRIDING the board's match for this snapshot only")
             print(f"    board: {match!r}")
