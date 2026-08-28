@@ -90,3 +90,36 @@ describe("dedupe suppresses only the question that was actually asked", () => {
     expect(askKey("c", "n1", null, "k")).not.toBe(askKey("c", null, "n1", "k"));
   });
 });
+
+describe("a resolved comment does not gag a finding that is still live", () => {
+  // The rule: dedupe protects against asking a question that is already on
+  // screen, and against re-asking something she declined. A resolved comment is
+  // neither — it means the question was answered and its mutation applied, so
+  // if the finding is STILL live the answer did not fix it and asking again is
+  // correct.
+  //
+  // Suppressing it is terminal. One board answered seven questions whose
+  // mutation appended a duplicate row rather than setting its target: every
+  // finding survived, every comment read as settled, and the worker reported
+  // "7 findings, 0 new" round after round with nothing on screen to act on.
+  const asked = (status: string) =>
+    askedAlready(
+      [{ code: "output_row_unresolvable", node_id: "o1", edge_id: null, key: "how many" }].filter(
+        () => status !== "resolved",
+      ),
+    );
+
+  const key = "output_row_unresolvable|o1||how many";
+
+  it("suppresses while the question is open", () => {
+    expect(asked("open").has(key)).toBe(true);
+  });
+
+  it("suppresses what she rejected", () => {
+    expect(asked("rejected").has(key)).toBe(true);
+  });
+
+  it("does not suppress once resolved, so a surviving finding is asked again", () => {
+    expect(asked("resolved").has(key)).toBe(false);
+  });
+});

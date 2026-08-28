@@ -104,9 +104,25 @@ async function handle(runId: string): Promise<void> {
     // if the finding is back, the honest thing is to ask again. Counting those
     // is what turns a transient auto-close into a question that can never be
     // posed a second time.
+    //
+    // A RESOLVED comment does not suppress either, and the reason is the same
+    // one turned up a level. Dedupe exists so a question that is already on
+    // screen is not asked twice, and so something she declined is not asked
+    // again. A resolved comment is neither: it means the question was answered
+    // and its mutation applied. If the finding it was about is STILL LIVE --
+    // and every finding tested here is, by construction -- then the answer did
+    // not fix it, and asking again is the honest thing.
+    //
+    // Suppressing it instead is terminal: one board answered seven questions
+    // whose mutation appended a duplicate row rather than setting its target,
+    // so every finding survived, every comment read as settled, and the agent
+    // reported "7 findings, 0 new" forever with nothing on screen to act on.
+    // A question that comes back is annoying; a board that goes quiet while
+    // blocked cannot be recovered from the UI at all.
     const seen = await client.query(
       `select code, node_id, edge_id, coalesce(mutation->>'key', mutation->'row'->>'label') as key from comments
         where map_id = $1
+          and status <> 'resolved'
           and coalesce(answer->>'resolved_directly', 'false') <> 'true'`,
       [mapId],
     );
