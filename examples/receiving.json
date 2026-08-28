@@ -1,6 +1,6 @@
 {
   "title": "Inbound import receiving",
-  "note": "Converged. Every industry-specific noun here lives in a label or a source_hint — the compiler knows rec_coa only as 'keyed on batch_number, paired with Batch, read by a check'.",
+  "note": "Converged. Every industry-specific noun here lives in a label or a source_hint \u2014 the compiler knows rec_coa only as 'keyed on batch_number, paired with Batch, read by a check'.",
   "nodes": [
     {
       "id": "ch_a1",
@@ -48,7 +48,9 @@
           "reg_no",
           "ndc"
         ],
-        "describes": "A line item on the invoice — one product, with its regulatory codes."
+        "describes": "A line item on the invoice \u2014 one product, with its regulatory codes.",
+        "identity_key": "ndc",
+        "source_hint": "the line-item table on the invoice"
       }
     },
     {
@@ -62,7 +64,8 @@
         "fields": [
           "batch_number"
         ],
-        "describes": "A manufacturing batch listed against a line item."
+        "describes": "A manufacturing batch listed against a line item.",
+        "source_hint": "the batch column on the invoice line items"
       }
     },
     {
@@ -138,7 +141,7 @@
         "tool": "composio.gmail",
         "request": {
           "to": "danieljhsiao@gmail.com",
-          "subject": "Discrepancy — invoice {rec_inv.invoice_number}",
+          "subject": "Discrepancy \u2014 invoice {rec_inv.invoice_number}",
           "body": "Missing certificates for: {rec_batch.batch_number where fail}"
         },
         "describes": "We email the forwarder about anything missing and wait for them to send it."

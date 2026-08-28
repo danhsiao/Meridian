@@ -22,7 +22,7 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 import {
   elaborate, render, policyIsResolved,
-  askKey, askedAlready, findingKey, mutationKey,
+  askKey, askedAlready, shouldAsk, findingKey, mutationKey,
   EmptyOptionSet, NothingToConfirm, NotAQuestion,
 } from "@engine/compiler";
 import type { Board, Edge, Finding, Node } from "@engine/compiler";
@@ -120,7 +120,8 @@ async function handle(runId: string): Promise<void> {
     // A question that comes back is annoying; a board that goes quiet while
     // blocked cannot be recovered from the UI at all.
     const seen = await client.query(
-      `select code, node_id, edge_id, coalesce(mutation->>'key', mutation->'row'->>'label') as key from comments
+      `select code, node_id, edge_id, status,
+              coalesce(mutation->>'key', mutation->'row'->>'label') as key from comments
         where map_id = $1
           and status <> 'resolved'
           and coalesce(answer->>'resolved_directly', 'false') <> 'true'`,
@@ -131,7 +132,11 @@ async function handle(runId: string): Promise<void> {
     // Askable only. A key can be required without yet being a fair question —
     // "what should happen when the value is empty?" means nothing before she
     // has said what the check does. Freeze still counts every blocking finding.
-    const fresh = findings.filter((f) => f.askable && !already.has(findingKey(f)));
+    //
+    // shouldAsk() is the whole rule, in the compiler so the canvas and the
+    // worker cannot drift on what "already asked" means — including the part
+    // where declining settles a proposal but never a requirement.
+    const fresh = findings.filter((f) => f.askable && shouldAsk(f, seen.rows));
 
     // What she just touched gets asked about first.
     //
@@ -162,10 +167,34 @@ async function handle(runId: string): Promise<void> {
     // formalised blocks on `derived` keys, and only this can fill them — so
     // asking her anything else first is asking around the actual obstacle.
     if (resolutionAvailable()) {
+      // Every playback already put to her on this board, and what she did with
+      // it. `already` cannot answer this: it counts anything not resolved, so a
+      // REJECTED playback read as "asked once, never again" and switched the
+      // resolver off for that policy permanently. Rejection means "let me say
+      // it differently" — the one answer that is supposed to produce a second
+      // reading. One board sat five rounds past a rejection with nothing able
+      // to fill `check`, which is the only key that ends the question.
+      const playbacks = await client.query(
+        `select c.node_id, c.status, c.proposal,
+                (n.updated_at > c.created_at) as edited_since
+           from comments c
+           join nodes n on n.map_id = c.map_id and n.id = c.node_id
+          where c.map_id = $1 and c.code = 'policy_resolution'`,
+        [mapId],
+      );
+      const shapeOf = (p: unknown) => {
+        const x = p as { check?: unknown; reads?: unknown; verdict_on?: unknown } | null;
+        return JSON.stringify({ check: x?.check, reads: x?.reads, verdict_on: x?.verdict_on });
+      };
+
       for (const policy of board.nodes.filter((x) => x.primitive === "policy")) {
         // Structurally resolved, not merely non-null — see policyIsResolved().
         if (policyIsResolved(policy)) continue;
-        if (already.has(askKey("policy_resolution", policy.id, null, null))) continue;
+
+        const prior = playbacks.rows.filter((p) => p.node_id === policy.id);
+        // One already on screen, waiting on her. Asking twice is the thing
+        // dedupe exists to prevent.
+        if (prior.some((p) => p.status === "open" || p.status === "answered")) continue;
 
         let r;
         try {
@@ -187,6 +216,11 @@ async function handle(runId: string): Promise<void> {
             preview: null, options: null, proposal: null,
             mutation: { op: "set_config_key", node_id: policy.id, key: "describes", value: null },
           });
+          // Pass A raises `unresolved_policy` on this same policy with the same
+          // key, and `already` was read from the database before this insert —
+          // so without recording it here the board gets both, worded
+          // differently, in one round.
+          already.add(askKey("unresolved_policy", policy.id, null, "describes"));
           written++;
           continue;
         }
@@ -198,6 +232,25 @@ async function handle(runId: string): Promise<void> {
           check: r.check, reads: r.reads, verdict_on: r.verdict_on,
           confirmed_by: `c_${String(n).padStart(2, "0")}`,
         };
+
+        // She has already said no to exactly this reading, AND has not touched
+        // the card since. Re-proposing it would be the same question a second
+        // time with no new information behind it.
+        //
+        // The second half of that is what makes it safe. Rejection means "let
+        // me say it differently", so she goes and says it differently — and if
+        // the reading that comes back is still the same, that is a fact about
+        // the new description, not a repeat of the old question. Suppressing it
+        // on shape alone put one board in a loop with no exit: the prompt asked
+        // her to re-describe, the re-description resolved to the shape she once
+        // rejected, the playback was dropped, and the prompt came back.
+        const stale = prior.some(
+          (p) =>
+            p.status === "rejected" &&
+            !p.edited_since &&
+            shapeOf(p.proposal) === shapeOf(proposal),
+        );
+        if (stale) continue;
         await insert(client, {
           mapId, id: `c_${String(n++).padStart(2, "0")}`, nodeId: policy.id, round, runId,
           code: "policy_resolution", severity: "advisory", rank: "structural",
@@ -226,6 +279,18 @@ async function handle(runId: string): Promise<void> {
     if (proposalsAvailable()) {
       // The only keys Pass B may fill are ones Pass A has decided to ask about,
       // with the values Pass A would have offered.
+      //
+      // And only keys Pass A offers a CHOICE for. A `prompt` finding is one the
+      // compiler cannot answer from the board — `unresolved_policy` asks for a
+      // description precisely because the one already written did not resolve —
+      // so there is no allowed set to pick from and the model would be writing
+      // her prose for her. Worse, it wrote back the description it was handed:
+      // confirming set `describes` to the value it already held, the finding
+      // survived, and since a resolved comment does not gag a live finding the
+      // same question came back every round with only the playback reworded.
+      // Five rounds of "is that right?" on one card, and answering correctly
+      // could not end it. A confirmation that cannot change the board is not a
+      // question.
       const openKeys = ordered
         .filter((f) => f.evidence.key && "node_id" in f.anchor)
         .map((f) => {
@@ -239,7 +304,8 @@ async function handle(runId: string): Promise<void> {
             key: String(f.evidence.key),
             allowed,
           };
-        });
+        })
+        .filter((k) => k.allowed !== null && k.allowed.length > 0);
 
       try {
         const b = await proposeFromText(board, openKeys);
@@ -330,6 +396,31 @@ async function handle(runId: string): Promise<void> {
         `${recent.size ? ` (${ordered.filter(isRecent).length} on cards you just changed)` : ""}` +
         `, wrote ${written} in ${Date.now() - started}ms`,
     );
+
+    // The one state that must never pass in silence: the board cannot freeze,
+    // and this round put nothing on screen about it. Every cause found so far
+    // has been a dedupe rule suppressing a question whose answer could not
+    // settle it, and each one looked from the canvas like an agent with nothing
+    // left to say. It is not an error — a queue full of open questions is a
+    // legitimate reason to write nothing — so the check names the finding and
+    // the comment holding it down, and leaves the diagnosis to a person.
+    const stuck = findings.filter((f) => f.severity === "blocking" && f.askable);
+    if (written === 0 && stuck.length > 0) {
+      const openQueue = seen.rows.filter((r) => r.status === "open").length;
+      console.warn(
+        `  ${stuck.length} blocking finding(s) and nothing written` +
+          (openQueue ? ` — ${openQueue} already open, waiting on an answer` : " — NOTHING OPEN"),
+      );
+      for (const f of stuck) {
+        const k = findingKey(f);
+        const held = seen.rows.filter(
+          (r) => askKey(r.code, r.node_id, r.edge_id, r.key) === k,
+        );
+        console.warn(
+          `    ${k} — ${held.length ? held.map((h) => h.status).join(", ") : "not asked, not renderable"}`,
+        );
+      }
+    }
   } catch (e) {
     await client.query(`update review_runs set status = 'failed' where id = $1`, [runId]);
     throw e;

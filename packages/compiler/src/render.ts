@@ -309,10 +309,12 @@ function bodyFor(
 const CONDITION_WORDING: Record<string, (it: string) => string> = {
   multiple_sources: (it) =>
     `${it} can arrive from more than one place. Which value tells you two of them are the same one?`,
+  extracted_from_a_message: (it) =>
+    `The same message can arrive twice — forwarded, or sent again. Which value tells you two ${it} are the same one?`,
   multiple_inbound_artifacts: (it) =>
     `${it} is built from several things at once. Which value says which ones go together?`,
-  sibling_artifacts_from_same_channel: (it) =>
-    `More than one thing comes from the same place. How would you tell ${it} apart from the rest?`,
+  sibling_artifacts_from_same_source: (it) =>
+    `More than one thing comes out of the same document. How would you tell ${it} apart from the rest?`,
   multiple_read_artifacts: (it) =>
     `${it} looks at more than one thing. When it fails, which one is at fault?`,
   has_outputs: (it) => `How do you recognise what belongs to ${it}, and what to ignore?`,

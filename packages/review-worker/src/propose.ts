@@ -156,7 +156,7 @@ export async function proposeFromText(
       .map((p) => toProposal(p as Record<string, unknown>, board))
       .filter((p): p is Proposal => p !== null),
     prefills: (out.prefills ?? [])
-      .map((p) => toPrefill(p as Record<string, unknown>, openKeys))
+      .map((p) => toPrefill(p as Record<string, unknown>, openKeys, board))
       .filter((p): p is Prefill => p !== null),
   };
 }
@@ -347,9 +347,11 @@ function toProposal(p: Record<string, unknown>, board: Board): Proposal | null {
   return { code, because, anchor, mutation, preview };
 }
 
-function toPrefill(
+/** Exported for the regression test; the loop above is the only caller. */
+export function toPrefill(
   p: Record<string, unknown>,
   openKeys: { node_id: string; key: string; allowed: (string | number)[] | null }[],
+  board: Board,
 ): Prefill | null {
   const node_id = String(p.node_id ?? "");
   const key = String(p.key ?? "");
@@ -360,5 +362,13 @@ function toPrefill(
   if (!slot || !because) return null;
   // And only a value the compiler would have offered.
   if (slot.allowed && !slot.allowed.map(String).includes(String(p.value))) return null;
+  // And never the value the key already holds. Reading a card's own words back
+  // to it produces a confirmation that writes what was already there: the
+  // finding that asked survives untouched, and because a resolved comment does
+  // not gag a live finding, the identical question returns every round. The
+  // loop is unbreakable from the UI — "Yes, that's right" is the correct answer
+  // and it still changes nothing.
+  const current = board.nodes.find((n) => n.id === node_id)?.config?.[key];
+  if (current !== undefined && JSON.stringify(current) === JSON.stringify(p.value)) return null;
   return { node_id, key, value: p.value, because };
 }

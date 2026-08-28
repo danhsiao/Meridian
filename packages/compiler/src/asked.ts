@@ -30,6 +30,8 @@ export interface AskedComment {
   edge_id: string | null;
   /** The config key its mutation writes, if it writes one. */
   key: string | null;
+  /** Only `shouldAsk` reads it: declining settles a proposal, not a requirement. */
+  status?: string;
 }
 
 export function askKey(
@@ -60,6 +62,38 @@ export function mutationKey(m: unknown): string | null {
 
 export function askedAlready(rows: AskedComment[]): Set<string> {
   return new Set(rows.map((r) => askKey(r.code, r.node_id, r.edge_id, r.key)));
+}
+
+/**
+ * Should this finding be put to her, given what is already on the board?
+ *
+ * `rows` are the comments that have not been resolved. Three cases, and the
+ * third is the one that had no answer:
+ *
+ *   nothing asked          — ask.
+ *   asked and still open   — don't. It is on screen; asking twice is the whole
+ *                            thing dedupe exists to prevent.
+ *   asked and DECLINED     — depends on severity.
+ *
+ * Declining is a real answer to a proposal: "no, those two aren't related" has
+ * to stick, or the same suggestion returns every round. It is not an answer to
+ * a requirement. A blocking finding is a key the board cannot freeze without,
+ * so a declined blocking question leaves the canvas showing "1 to resolve" with
+ * an empty queue and no way forward — the board has gone quiet while still
+ * refusing to compile, and nothing in the UI can recover it.
+ *
+ * Same failure as dedupe-on-anchor, arriving by a different door, and the same
+ * rule closes it: suppress a question only when the answer it already has can
+ * settle it.
+ */
+export function shouldAsk(f: Finding, rows: AskedComment[]): boolean {
+  const k = findingKey(f);
+  const matching = rows.filter((r) => askKey(r.code, r.node_id, r.edge_id, r.key) === k);
+  if (matching.length === 0) return true;
+  // Waiting on her. Includes any row whose status this caller did not supply —
+  // an unknown status is treated as live, never as declined.
+  if (matching.some((r) => r.status !== "rejected")) return false;
+  return f.severity === "blocking";
 }
 
 export function findingKey(f: Finding): string {

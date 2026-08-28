@@ -248,6 +248,13 @@ export interface Registry {
   kinds: Record<string, KindSpec>;
   /** key -> the named condition that must hold before it's worth asking. */
   askable_if?: Record<string, string>;
+  /**
+   * Config keys whose answer is a LIST. Every other key holds one value, and
+   * for a `prompt` key that value is a sentence she typed. The canvas needs
+   * this to parse a free-text answer, and validate() needs it to reject one
+   * parsed wrong — see parseAnswer().
+   */
+  list_valued_keys?: string[];
   required_if_codes?: Record<string, FindingCode>;
   ask: Record<string, AskSpec>;
   templates: Record<string, { reads: string[] }>;

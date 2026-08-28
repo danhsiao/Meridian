@@ -7,7 +7,8 @@ export { policyIsResolved, resolvedToRelation, resolvedToImpl } from "./conditio
 export type { Option } from "./conditions.js";
 export * from "./types.js";
 export { apply, applyAll, validate, fill, MutationError } from "./mutations.js";
+export { parseAnswer, isListValued } from "./mutations.js";
 export { render, EmptyOptionSet, NothingToConfirm, NotAQuestion } from "./render.js";
-export { askKey, askedAlready, findingKey, mutationKey } from "./asked.js";
+export { askKey, askedAlready, shouldAsk, findingKey, mutationKey } from "./asked.js";
 export type { AskedComment } from "./asked.js";
 export type { Rendered } from "./render.js";

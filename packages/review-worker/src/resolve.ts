@@ -62,7 +62,11 @@ const TOOL: Anthropic.Tool = {
       reads: {
         type: "array",
         items: { type: "string" },
-        description: "Field paths this check looks at, exactly as supplied. Operands in order.",
+        description:
+          "Field paths this check looks at, exactly as supplied. Operands in order. " +
+          "List EVERY value the description names, not just the first: `present` and " +
+          "`absent` hold over all of them at once, so \"all five must be filled in\" is " +
+          "one check reading five paths, never five checks or one path.",
       },
       verdict_on: {
         type: "string",
@@ -109,6 +113,7 @@ export async function resolvePolicy(policy: Node, board: Board): Promise<Resolut
   const available = reads.flatMap((r) =>
     (Array.isArray(r.config?.fields) ? (r.config.fields as string[]) : []).map((f) => ({
       path: `${r.id}.${f}`,
+      field: f,
       reads_like: `${r.label} — ${f}`,
     })),
   );
@@ -176,7 +181,27 @@ export async function resolvePolicy(policy: Node, board: Board): Promise<Resolut
     };
   }
 
-  const spanned = new Set(chosen.map((p) => p.split(".")[0]));
+  // `present` and `absent` hold over every value at once — `relations.present`
+  // is `all(not blank)` — so a description that names five values is ONE check
+  // reading five paths. The model returned the first and stopped, and the
+  // playback then said the check fails when that ONE value is empty: a true
+  // sentence about a check she did not describe. She rejected it, correctly,
+  // and rejection sends her back to rewording — which cannot help, because no
+  // phrasing of "all of them" makes a one-operand reading right.
+  //
+  // So the names she typed are matched against the sentence she typed. Both
+  // sides are her own strings; nothing is inferred, and it can only ADD an
+  // operand she literally named. Only for these two relations: every other one
+  // is positional, where a sixth operand would change what it compares.
+  const all = relation === "present" || relation === "absent";
+  const named = all
+    ? available
+        .filter((a) => describes.toLowerCase().includes(a.field.toLowerCase()))
+        .map((a) => a.path)
+    : [];
+  const operands = [...new Set([...chosen, ...named])];
+
+  const spanned = new Set(operands.map((p) => p.split(".")[0]));
   const verdict = String(out.verdict_on ?? "");
 
   return {
@@ -187,9 +212,18 @@ export async function resolvePolicy(policy: Node, board: Board): Promise<Resolut
         ? { params: out.params as Record<string, unknown> }
         : {}),
     },
-    reads: chosen,
+    reads: operands,
     // Only meaningful when it spans two, and only if the model named one we know.
     verdict_on: spanned.size > 1 && spanned.has(verdict) ? verdict : [...spanned][0],
-    playback: String(out.playback ?? ""),
+    // The playback describes what it read. Adding operands and keeping a
+    // sentence that names one would show her a reading that is not the one
+    // about to be written — the exact failure the playback exists to prevent.
+    playback:
+      operands.length > chosen.length
+        ? `Fails when ${policy.label} finds any of these empty: ` +
+          operands
+            .map((p) => available.find((a) => a.path === p)?.reads_like ?? p)
+            .join(", ") + "."
+        : String(out.playback ?? ""),
   };
 }

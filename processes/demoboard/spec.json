@@ -1,0 +1,374 @@
+{
+  "compiled": {
+    "edge_roles": {
+      "e_1": "outcome",
+      "e_10": "derive",
+      "e_2": "outcome",
+      "e_3": "read",
+      "e_4": "read",
+      "e_5": "read",
+      "e_6": "contain",
+      "e_7": "contain",
+      "e_8": "contain",
+      "e_9": "contain",
+      "e_art_2_art_4": "join"
+    },
+    "fail_handlers": [],
+    "identity_merges": {
+      "art_2": "Batch No",
+      "art_3": "Invoice No",
+      "art_4": "Batch No"
+    },
+    "joins": [
+      {
+        "edge": "e_art_2_art_4",
+        "left": "art_2",
+        "on": "Batch No",
+        "right": "art_4"
+      }
+    ],
+    "loop_scopes": {
+      "art_2": [
+        "e_8"
+      ],
+      "art_3": [
+        "e_9"
+      ],
+      "art_4": [
+        "e_9",
+        "e_6"
+      ],
+      "art_5": [
+        "e_9",
+        "e_7"
+      ],
+      "pol_1": [
+        "e_9",
+        "e_7"
+      ],
+      "pol_2": [
+        "e_9",
+        "e_6"
+      ]
+    },
+    "propagations": [
+      {
+        "edge": "e_7",
+        "from": "art_5",
+        "to": "art_3"
+      }
+    ],
+    "topo_order": [
+      "cha_1",
+      "art_1",
+      "art_2",
+      "art_3",
+      "art_4",
+      "art_5",
+      "pol_1",
+      "pol_2",
+      "out_1"
+    ],
+    "verdict_targets": {
+      "pol_1": "art_5",
+      "pol_2": "art_2"
+    }
+  },
+  "edges": [
+    {
+      "config": {},
+      "from": "pol_2",
+      "id": "e_1",
+      "to": "out_1"
+    },
+    {
+      "config": {},
+      "from": "cha_1",
+      "id": "e_10",
+      "to": "art_1"
+    },
+    {
+      "config": {},
+      "from": "pol_1",
+      "id": "e_2",
+      "to": "out_1"
+    },
+    {
+      "config": {},
+      "from": "art_5",
+      "id": "e_3",
+      "to": "pol_1"
+    },
+    {
+      "config": {},
+      "from": "art_4",
+      "id": "e_4",
+      "to": "pol_2"
+    },
+    {
+      "config": {},
+      "from": "art_2",
+      "id": "e_5",
+      "to": "pol_2"
+    },
+    {
+      "config": {
+        "cardinality": "many",
+        "on_child_fail": "ignore",
+        "rel": "contains"
+      },
+      "from": "art_3",
+      "id": "e_6",
+      "to": "art_4"
+    },
+    {
+      "config": {
+        "cardinality": "many",
+        "on_child_fail": "fail_parent",
+        "rel": "contains"
+      },
+      "from": "art_3",
+      "id": "e_7",
+      "to": "art_5"
+    },
+    {
+      "config": {
+        "cardinality": "many",
+        "on_child_fail": "ignore",
+        "rel": "contains"
+      },
+      "from": "art_1",
+      "id": "e_8",
+      "to": "art_2"
+    },
+    {
+      "config": {
+        "cardinality": "many",
+        "on_child_fail": "ignore",
+        "rel": "contains"
+      },
+      "from": "art_1",
+      "id": "e_9",
+      "to": "art_3"
+    },
+    {
+      "config": {
+        "on": "Batch No",
+        "rel": "pairs_with"
+      },
+      "from": "art_2",
+      "id": "e_art_2_art_4",
+      "to": "art_4"
+    }
+  ],
+  "nodes": [
+    {
+      "config": {
+        "describes": "Comes from Gmail inbox, it's an email with subject line \"pre-alert email\""
+      },
+      "id": "art_1",
+      "label": "PreAlert Email",
+      "primitive": "artifact"
+    },
+    {
+      "config": {
+        "describes": "PDFs from the PreAlert Email",
+        "fields": [
+          "Batch No"
+        ],
+        "identity_key": "Batch No",
+        "source_hint": "PDFs name CoA or has CoA in them."
+      },
+      "id": "art_2",
+      "label": "CoAs",
+      "primitive": "artifact"
+    },
+    {
+      "config": {
+        "describes": "Invoices are pdfs attached to the PreAlert Email",
+        "fields": [
+          "Invoice No"
+        ],
+        "identity_key": "Invoice No",
+        "source_hint": "PDFs name Invoices, or Invoices explicitly in the PDFs"
+      },
+      "id": "art_3",
+      "label": "Invoices",
+      "primitive": "artifact"
+    },
+    {
+      "config": {
+        "describes": "Batches are in invoices",
+        "fields": [
+          "Batch No"
+        ],
+        "identity_key": "Batch No",
+        "source_hint": "Batches in the Invoices"
+      },
+      "id": "art_4",
+      "label": "Batches",
+      "primitive": "artifact"
+    },
+    {
+      "config": {
+        "describes": "Goods are from the invoices",
+        "fields": [
+          "FDA No",
+          "HTS No",
+          "ANDA No",
+          "FEI Reg. No",
+          "NDC No"
+        ],
+        "source_hint": "Goods in Invoices"
+      },
+      "id": "art_5",
+      "label": "Goods",
+      "primitive": "artifact"
+    },
+    {
+      "config": {
+        "describes": "Gmail, receives emails",
+        "match": "Emails that has the subject line \"Pre-Alert Documents\" belong in inbox",
+        "tool": "composio.gmail"
+      },
+      "id": "cha_1",
+      "label": "Inbox",
+      "primitive": "channel"
+    },
+    {
+      "config": {
+        "describes": "How many invoices we processed\nHow many invoices passed\nHow many invoices failed\nHow many goods failed\nHow many batches we processed\nHow many batches passed\nHow many batches failed",
+        "rows": [
+          {
+            "fn": "count",
+            "label": "How many invoices we processed",
+            "of": "art_3"
+          },
+          {
+            "fn": "count",
+            "label": "How many invoices passed",
+            "of": "art_3"
+          },
+          {
+            "fn": "count",
+            "label": "How many invoices failed",
+            "of": "art_3"
+          },
+          {
+            "fn": "count",
+            "label": "How many goods failed",
+            "of": "art_5"
+          },
+          {
+            "fn": "count",
+            "label": "How many batches we processed",
+            "of": "art_4"
+          },
+          {
+            "fn": "count",
+            "label": "How many batches passed",
+            "of": "art_4"
+          },
+          {
+            "fn": "count",
+            "label": "How many batches failed",
+            "of": "art_4"
+          }
+        ]
+      },
+      "id": "out_1",
+      "label": "Summary",
+      "primitive": "output"
+    },
+    {
+      "config": {
+        "check": {
+          "relation": "present"
+        },
+        "confirmed_by": "c_22",
+        "describes": "Code Check looks at each Good and fails it if any of FDA No, HTS No, ANDA No, FEI Reg. No, or NDC No is empty. All five must be filled in.",
+        "on_absent": "fail",
+        "on_fail": "flag_and_continue",
+        "reads": [
+          "art_5.FDA No",
+          "art_5.HTS No",
+          "art_5.ANDA No",
+          "art_5.FEI Reg. No",
+          "art_5.NDC No"
+        ],
+        "verdict_on": "art_5"
+      },
+      "id": "pol_1",
+      "label": "Code Check",
+      "primitive": "policy"
+    },
+    {
+      "config": {
+        "check": {
+          "params": {
+            "on": "Batch No"
+          },
+          "relation": "exists_matching"
+        },
+        "confirmed_by": "c_23",
+        "describes": "Checks to see if All CoAs have a corresponding batch via batch no",
+        "on_absent": "fail",
+        "on_fail": "flag_and_continue",
+        "reads": [
+          "art_2.Batch No",
+          "art_4.Batch No"
+        ],
+        "verdict_on": "art_2"
+      },
+      "id": "pol_2",
+      "label": "Cross Validation Check",
+      "primitive": "policy"
+    }
+  ],
+  "process_id": "demoboard",
+  "provenance": {
+    "assumptions": [],
+    "comments": [
+      "c_23",
+      "c_25",
+      "c_27",
+      "c_06",
+      "c_37",
+      "c_35",
+      "c_30",
+      "c_36",
+      "c_05",
+      "c_09",
+      "c_28",
+      "c_29",
+      "c_31",
+      "c_33",
+      "c_22",
+      "c_38",
+      "c_26",
+      "c_07",
+      "c_13",
+      "c_08",
+      "c_11",
+      "c_12",
+      "c_24",
+      "c_03",
+      "c_04",
+      "c_32",
+      "c_02",
+      "c_10",
+      "c_14",
+      "c_16",
+      "c_15",
+      "c_20",
+      "c_21",
+      "c_18",
+      "c_19",
+      "c_17",
+      "c_34"
+    ]
+  },
+  "registry_version": "1.0",
+  "spec_hash": "sha256:4bf2e2870a8ecf7cf5fb731fd0072cc8055a097f574704f3509ce136a8603e8c",
+  "spec_version": "1.0"
+}

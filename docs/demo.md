@@ -142,10 +142,9 @@ The skill classifies, states a root cause, patches inside
 `processes/<id>/agent/`, and stops. It never re-runs the suite; you do.
 
 **Know this before recording:** `cli gen` overwrites `agent/`, so a regeneration
-discards every heal pass. The agent as it stands is un-healed and scores
-**3/12**. If you want to show `4/12`, run `/heal-agent` *after* the last
-`cli gen` and before the eval. See
-[blocks-6-9.md](blocks-6-9.md#healing-and-regeneration-are-in-tension-and-nothing-resolves-it-yet).
+discards every heal pass. Run `/heal-agent` *after* the last `cli gen` and
+before the eval, never the other way round. Nothing guards this today — the
+skill patches `processes/<id>/agent/` and `cli gen` rewrites that directory.
 
 ---
 

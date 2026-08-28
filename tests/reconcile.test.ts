@@ -27,7 +27,7 @@ function board(): Board {
   return {
     nodes: [
       N("cha_1", "channel", { tool: "composio.gmail", match: { s: 1 } }),
-      N("art_1", "artifact", { fields: ["ref"] }, "Form"),
+      N("art_1", "artifact", { fields: ["ref"], identity_key: "ref" }, "Form"),
       N("pol_1", "policy", {}, "Check"),
       N("out_1", "output", {}),
     ],

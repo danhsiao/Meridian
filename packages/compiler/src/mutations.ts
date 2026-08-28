@@ -10,9 +10,37 @@
 // have. Provenance lives on the comment row instead.
 
 import { Graph, fieldsOf, splitPath } from "./graph.js";
-import type { Board, Edge, Mutation, Node, NodeId } from "./types.js";
+import registryJson from "../registry.json" with { type: "json" };
+import type { Board, Edge, Mutation, Node, NodeId, Registry } from "./types.js";
 
 export class MutationError extends Error {}
+
+const LIST_VALUED = new Set((registryJson as unknown as Registry).list_valued_keys ?? []);
+
+/** Does this config key hold a list? The registry says so; nothing guesses. */
+export function isListValued(key: string): boolean {
+  return LIST_VALUED.has(key);
+}
+
+/**
+ * A free-text answer, turned into the shape its key holds.
+ *
+ * The canvas used to decide this by looking for a comma: an answer containing
+ * one became a list, anything else stayed text. That is right for "what values
+ * do you pull out of this?" and catastrophic for every question whose answer is
+ * a sentence — English has commas. One description of a check went in as prose
+ * and came out as five list items, `String()` rejoined them without the spaces,
+ * and the resolver was handed something no model could map onto a relation. The
+ * board asked the same blocking question five rounds running with no way to
+ * answer it, because the answer was being destroyed on the way in.
+ *
+ * The key decides, and the key's shape is in the registry.
+ */
+export function parseAnswer(key: string, raw: string): unknown {
+  const s = raw.trim();
+  if (!isListValued(key)) return s;
+  return s.includes(",") ? s.split(",").map((p) => p.trim()).filter(Boolean) : s;
+}
 
 /** A hole the compiler could not fill. Her answer supplies it before apply. */
 const HOLE = null;
@@ -63,6 +91,15 @@ export function validate(
       need(m.node_id, "set_config_key.node_id");
       if (!m.key) errs.push("set_config_key.key is empty");
       if (m.value === HOLE && !allowHoles) errs.push("set_config_key.value is still unfilled");
+      // A list where the key holds one value. The canvas parses free text, and
+      // when it guesses wrong the damage is silent: a description split on its
+      // commas is still "present", so every check that asks whether the key is
+      // filled says yes, and only the thing that has to READ the sentence —
+      // the resolver — can tell. It cannot say so; it just fails to resolve,
+      // and the board asks the same question forever. Loud here instead.
+      if (Array.isArray(m.value) && !isListValued(m.key) && m.key !== "rows") {
+        errs.push(`set_config_key.${m.key} holds one value, not a list`);
+      }
       break;
     case "set_edge_config":
       if (!edgeIds.has(m.edge_id)) errs.push(`set_edge_config references unknown edge "${m.edge_id}"`);

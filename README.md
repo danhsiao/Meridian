@@ -102,7 +102,11 @@ The completed execution at http://localhost:8233 records
 not the hand-written reference. Results land in `processes/<id>/reports/`.
 
 To heal a failing eval, read `reports/eval.json`, run `/heal-agent` in Claude
-Code, then re-run `eval` yourself. Note that `cli gen` overwrites `agent/`
+Code, then re-run `eval` yourself — the skill classifies, patches, and stops
+without re-running the suite, so the checkpoint stays with you. Note that
+`cli gen` overwrites `agent/`, so a regeneration discards every heal pass: run
+`/heal-agent` *after* the last `gen`, never before. Nothing guards this today.
+
 ### Keys
 
 Only the back half needs any. Supabase's four local values are written by
@@ -116,12 +120,14 @@ every key and where it comes from.
 
 ```bash
 npm run doctor   # env, docker, schema, seed, LISTEN/NOTIFY, tests, noun lint
-npm run check    # lint:nouns + typecheck + 171 tests, no database needed
+npm run check    # lint:nouns + typecheck + 197 tests, no database needed
 ```
 
 ---
 
 ## How it works
+**System Architecture** 
+https://lucid.app/lucidchart/0cd54a9b-917f-4eec-b28c-87dbfd840d57/edit?viewport_loc=-431%2C48%2C3178%2C1854%2C0_0&invitationId=inv_705b1a77-2e4d-49c4-ab04-813c4217442c
 
 **Four primitives.** Channel (a connection to the outside world), Artifact (a
 typed thing with fields), Policy (a check returning pass/fail), Output (what
@@ -143,3 +149,120 @@ answering one is a structural edit applied in a single transaction.
 **Freeze is a type check.** Five predicates run on Submit; failure names the
 offending node IDs. Then `x, y` are stripped, keys sorted, and the payload
 hashed — a compiler ignoring whitespace.
+
+---
+
+### The Data
+
+| Table | Holds | Notes |
+|---|---|---|
+| `users` | `id`, `org_id`, `email` | |
+| `process_maps` | a board — `title`, `status` | `status` is `draft` or `frozen`, checked |
+| `nodes` | `(map_id, id)`, `primitive`, `label`, `config` jsonb, `x`, `y` | composite PK: node ids are board-local (`rec_inv`), so a global key collides the moment a second board reuses one. `label` **is** read — it reaches the extraction prompt. `x, y` are stripped before hashing |
+| `edges` | `(map_id, id)`, `from_node`, `to_node`, `config` | FKs are composite into `nodes`; `unique (map_id, from_node, to_node)` |
+| `review_runs` | `id`, `map_id`, `round`, `status` | an `after insert` trigger `pg_notify`s `review_runs`; the worker wakes on `LISTEN`, never polls |
+| `comments` | the diagnostic — see below | |
+| `frozen_specs` | `map_id`, `version`, `registry_version`, `spec` jsonb, `spec_hash` | `unique (map_id, version)`; the payload is immutable |
+| `spec_builds` | `spec_id`, `status`, `iteration`, `tests_passed/total` | separate from `frozen_specs` on purpose — the frozen payload is immutable, so mutable build status lives elsewhere. Many builds per spec (re-runs, heal iterations) |
+
+`comments` carries the most structure, because a comment is a diagnostic that
+also knows its own quick fix:
+
+| Column | Why it exists |
+|---|---|
+| `node_id` / `edge_id` | exactly one, never zero — `constraint one_anchor` |
+| `code` | the Finding code, from a closed set |
+| `severity` × `rank` | two axes, not one. `severity` answers *does this block freeze*; `rank` answers *where does it sit in the queue*. A structural correction is advisory but ranks above ordinary blocking findings, so one column cannot carry both |
+| `pass` | `A` (code) or `B` (model) |
+| `binding` | `control` \| `prompt` \| `derived` |
+| `answer_kind` | derived from `binding`, never chosen — a check constraint enforces the pairing |
+| `mutation` jsonb | **not null**. A comment without one is a note. Every comment carries its edit at creation, so answering it is one transaction |
+| `proposal` | a `derived` key's resolution, shown before she can confirm it (`constraint derived_has_proposal`) |
+| `preview` | what accepting will *do*, in her words — generated from the mutation, not written by a model, so it cannot disagree with what happens |
+| `supersedes` | a later decision invalidating an earlier one |
+
+### The frozen spec
+
+What `freeze` emits and `cli pull` writes to `processes/<id>/spec.json`. Keys
+sorted, `x, y` stripped, then hashed — a compiler ignoring whitespace.
+
+```jsonc
+{
+  "spec_version":     "1.0",
+  "registry_version": "1.0",        // additive registry bumps stay compilable
+  "process_id":       "demoboard",
+  "spec_hash":        "sha256:4bf2e287…",
+  "nodes":    [ /* … */ ],
+  "edges":    [ /* … */ ],
+  "compiled": { /* … */ },
+  "provenance": { "comments": ["c_23", "c_25", …], "assumptions": [] }
+}
+```
+
+A node is its `primitive`, its `label` (user-typed, and read by the extraction
+prompt), and a `config` whose keys the registry governs:
+
+```jsonc
+{
+  "id": "art_2",
+  "primitive": "artifact",          // channel | artifact | policy | output
+  "label": "CoAs",
+  "config": {
+    "describes":    "PDFs from the PreAlert Email",
+    "fields":       ["Batch No"],
+    "identity_key": "Batch No",
+    "source_hint":  "PDFs name CoA or has CoA in them."
+  }
+}
+```
+
+An edge is `{ "id", "from", "to", "config" }` — note `from`/`to` in the spec,
+against `from_node`/`to_node` on the bus.
+
+`compiled` is the part codegen actually walks. It is derived at freeze, never
+hand-written, and it is what makes the generated agent a straight-line
+transcription rather than an interpretation:
+
+| Key | What it carries |
+|---|---|
+| `topo_order` | the node order the agent emits its steps in |
+| `edge_roles` | each edge id → `contain` \| `read` \| `join` \| `derive` \| `outcome` |
+| `identity_merges` | node id → the field that says two records are the same one |
+| `joins` | `{edge, left, right, on}` |
+| `loop_scopes` | node id → the containment edges it nests under |
+| `verdict_targets` | policy id → the artifact its pass/fail lands on |
+| `propagations` | `{edge, from, to}` — a verdict travelling up a containment edge |
+| `fail_handlers` | per-edge failure routing |
+
+`verdict_targets` and `propagations` are the two that decide what a metric even
+means. On `demoboard` they read `{pol_1: art_5, pol_2: art_2}` and
+`{edge: e_7, from: art_5, to: art_3}` — nothing judges an invoice directly, but
+a goods verdict travels up `e_7`, so an invoice fails exactly when one of its
+goods does.
+
+### The registry
+
+`packages/compiler/registry.json`, `registry_version` `1.0`.
+
+| Key | What it fixes |
+|---|---|
+| `kinds` | `channel`, `artifact`, `policy`, `output`, `edge` |
+| `ask` | 28 config keys the review agent may ask about, as `<kind>.<key>` (`artifact.fields`, `policy.verdict_on`, …) |
+| `askable_if` | 15 keys whose askability is conditional on another answer |
+| `templates` | 12 codegen templates, each keyed to a verb (`artifact.extract`, `policy.relation`, `edge.join`, …) |
+| `reads_compiler` | 7 keys the compiler consumes rather than the prompt |
+| `list_valued_keys` | `fields`, `reads`, `required`, `rescope` |
+| `required_if_codes` | findings that make a key mandatory |
+
+Four of the ten policy relations are implemented; the rest are declared here and
+stated as unbuilt, so a board can name one and freeze will say it is not built
+rather than silently generating nothing.
+
+---
+
+## Live demo (in order)
+1. Whiteboarding Pt. 1: https://www.loom.com/share/220ed731ecba4a1c9de9eb7b56a6e6d4
+2. Whiteboarding Pt. 2: https://www.loom.com/share/105cbe39a50c4ffdb21e6786a8a00163
+3. CodeGen Agent/Heal Agent Pt.1: https://www.loom.com/share/083fe048b3114642bf9846c8fcdb265c
+4. CodeGen Agent/Heal Agent Pt.2: https://www.loom.com/share/90a2527230dc49bab4ff2a5b8c9368af
+5. CodeGen Agent/Heal Agent Pt.3: https://www.loom.com/share/b824abab26e942879c5576212c9875d8

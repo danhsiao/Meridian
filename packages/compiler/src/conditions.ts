@@ -80,12 +80,29 @@ export const nodeConditions: Record<string, NodeCondition> = {
   holds_no_child_records: (n, g) =>
     n.primitive === "artifact" && g.outboundOf(n.id, "artifact").length === 0,
 
-  // Two artifacts off one channel: something has to say which attachment is which.
-  sibling_artifacts_from_same_channel: (n, g) => {
+  /**
+   * Two artifacts off one SOURCE: something has to say which is which.
+   *
+   * The source is whatever this record is pulled out of — a channel when the
+   * message itself is the source, an artifact when the message was drawn as a
+   * card and the documents hang off it. Both shapes have the identical problem:
+   * one payload, two extractions, and nothing in the spec distinguishing them.
+   *
+   * This tested channels only, and a board that draws the email as its own card
+   * — which is the natural way to draw it — put both documents one hop further
+   * down, where the condition never fired. It froze clean with no `source_hint`
+   * on either, and the eval showed why that matters: both extractions came back
+   * holding the same values, read out of whichever document the model found
+   * first. A perfect 1:1 between two records that should differ, so the check
+   * comparing them could not fail. Silent, and invisible from the board.
+   *
+   * The parent's kind was never the point. Sharing a source is.
+   */
+  sibling_artifacts_from_same_source: (n, g) => {
     if (n.primitive !== "artifact") return false;
-    const channels = g.inboundChannels(n.id).map((c) => c.id);
-    return channels.some((cid) =>
-      g.outboundOf(cid, "artifact").filter((a) => a.id !== n.id).length > 0,
+    const parents = g.incoming(n.id).map((e) => e.from);
+    return parents.some((pid) =>
+      g.outboundOf(pid, "artifact").filter((a) => a.id !== n.id).length > 0,
     );
   },
 
@@ -108,6 +125,9 @@ export const nodeConditions: Record<string, NodeCondition> = {
 
   // Reads span more than one artifact, so something must name which one takes
   // the failure — otherwise two different counts collapse into one.
+  // Pulled straight out of a message, which can be delivered twice.
+  extracted_from_a_message: (n, g) => extractedFromAMessage(n, g),
+
   multiple_read_artifacts: (n) => {
     const reads = n.config?.reads;
     if (!Array.isArray(reads)) return false;
@@ -127,6 +147,50 @@ export const nodeConditions: Record<string, NodeCondition> = {
  * The rule of thumb this enforces: a new empty card produces exactly ONE
  * question, and it is about what the thing is. Everything else follows.
  */
+/**
+ * Is this record pulled straight out of a message that arrives?
+ *
+ * The position that needs a merge rule, and the reason is delivery rather than
+ * drawing. A message can be delivered twice — forwarded, resent, one delivery
+ * announced by two copies of the same paperwork — and everything extracted from
+ * it is then extracted once per copy. An eval over real fixtures showed exactly
+ * that: three cases arriving as two messages each, every count downstream
+ * exactly double, and no other case touched.
+ *
+ * `multiple_sources` could not see it. In-degree above one is a duplicate that
+ * is VISIBLE in the drawing — two arrows into one card — and a redelivery draws
+ * as one arrow. So the two conditions catch different things and both are
+ * needed.
+ *
+ * Scope is one hop from the channel: the record itself, or its parent, arrives.
+ * Deeper than that and the question stops paying for itself — a grandchild is
+ * pinned by the chain above it, and asking for a key on every nested row is
+ * noise. One hop is where redelivery actually duplicates things.
+ *
+ * The graph cannot tell a document attached to a message from a row inside a
+ * document — both are a child of a card the channel feeds — so both are asked.
+ * That is the honest limit of what in-degree and edge direction can decide, and
+ * an operator who says "these only ever come one at a time" answers once.
+ */
+export function extractedFromAMessage(n: Node, g: Graph): boolean {
+  if (n.primitive !== "artifact") return false;
+  // No values to key on, so there is no answer to give. A card that holds child
+  // records legitimately carries no fields of its own -- requiring a key it
+  // could never supply would block the freeze permanently and render as an
+  // empty option set, which is a question with no answers rather than a
+  // question with a hard answer.
+  if (fieldsOf(n).length === 0) return false;
+  return g.incoming(n.id).some((e) => {
+    const parent = g.node(e.from);
+    if (!parent) return false;
+    // Straight off the channel: the message itself is the record.
+    if (parent.primitive === "channel") return true;
+    // One hop down: the message was drawn as its own card and the documents
+    // hang off it, which is the way most people draw mail.
+    return g.inboundChannels(parent.id).length > 0;
+  });
+}
+
 export const askableConditions: Record<string, NodeCondition> = {
   policy_described_and_bound: (n, g) =>
     nonEmpty(n.config?.describes) && g.inboundArtifacts(n.id).length > 0,

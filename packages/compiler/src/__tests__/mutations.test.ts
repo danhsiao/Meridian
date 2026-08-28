@@ -18,7 +18,9 @@ function cleanBoard(): Board {
   return {
     nodes: [
       node("c1", "channel", { tool: "composio.gmail", match: { subject: "x" } }),
-      node("a1", "artifact", { fields: ["f1", "f2"] }),
+      // `identity_key`: a1 comes straight out of a message, and a message can be
+      // delivered twice. See extractedFromAMessage().
+      node("a1", "artifact", { fields: ["f1", "f2"], identity_key: "f1" }),
       node("p1", "policy", {
         describes: "f1 has to be filled in",
         check: { relation: "present" },

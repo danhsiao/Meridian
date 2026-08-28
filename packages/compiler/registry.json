@@ -28,10 +28,13 @@
         "multiple_sources": [
           "identity_key"
         ],
+        "extracted_from_a_message": [
+          "identity_key"
+        ],
         "multiple_inbound_artifacts": [
           "pair_on"
         ],
-        "sibling_artifacts_from_same_channel": [
+        "sibling_artifacts_from_same_source": [
           "source_hint"
         ],
         "holds_no_child_records": [
@@ -177,6 +180,7 @@
       }
     }
   },
+  "list_valued_keys": ["fields", "reads", "required", "rescope"],
   "required_if_codes": {
     "neither_resolved": "unresolved_policy"
   },

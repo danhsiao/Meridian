@@ -67,10 +67,14 @@ describe("a resolved check is gated on her confirmation", () => {
     const r = freeze(confirmed, { process_id: "p", comments: ["c_01"] });
     if (!r.ok) {
       // Anything still blocking must be a DIFFERENT question, not the check.
-      // Two records off one channel need a source_hint apiece; that is a real
-      // requirement this fixture doesn't satisfy, and not the gate under test.
+      // Two records off one channel need a `source_hint` apiece, and each is
+      // pulled straight out of a message so each needs an `identity_key` too.
+      // Both are real requirements this fixture doesn't satisfy, and neither is
+      // the gate under test.
       expect(r.findings.map((f) => f.evidence.key)).not.toContain("check");
-      expect(new Set(r.findings.map((f) => f.evidence.key))).toEqual(new Set(["source_hint"]));
+      expect(new Set(r.findings.map((f) => f.evidence.key))).toEqual(
+        new Set(["source_hint", "identity_key"]),
+      );
     }
   });
 

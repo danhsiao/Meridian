@@ -16,6 +16,7 @@
 //   which opens free text rather than leaving her stuck.
 
 import { useState } from "react";
+import { parseAnswer } from "@engine/compiler/client";
 import type { CommentRow } from "../store/types";
 
 export default function CommentCard({
@@ -125,11 +126,11 @@ export default function CommentCard({
             placeholder="type your answer"
             disabled={pending}
             onChange={setText}
-            onSubmit={() => text.trim() && onAnswer(parseAnswer(text))}
+            onSubmit={() => text.trim() && onAnswer(parseFor(c, text))}
           />
           <button
             disabled={pending || !text.trim()}
-            onClick={() => onAnswer(parseAnswer(text))}
+            onClick={() => onAnswer(parseFor(c, text))}
           >
             Save
           </button>
@@ -180,13 +181,16 @@ function Grow({
 }
 
 /**
- * A free-text answer to a list-valued key is comma separated. Whatever it
- * parses to, the compiler validates the mutation before anything is written —
- * so a wrong guess here fails loudly rather than corrupting a board.
+ * A free-text answer, in the shape its key holds.
+ *
+ * This used to split on any comma, which is right for "what values do you pull
+ * out of this?" and wrong for every question answered with a sentence. The key
+ * decides now, and only the registry knows which keys hold lists — so the
+ * canvas asks the compiler rather than guessing from punctuation.
  */
-function parseAnswer(raw: string): unknown {
-  const s = raw.trim();
-  return s.includes(",") ? s.split(",").map((p) => p.trim()).filter(Boolean) : s;
+function parseFor(c: CommentRow, raw: string): unknown {
+  const key = (c.mutation as { key?: unknown } | null)?.key;
+  return typeof key === "string" ? parseAnswer(key, raw) : raw.trim();
 }
 
 /** The resolution in her words, if the agent produced one. */

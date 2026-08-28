@@ -24,7 +24,7 @@ function board(): Board {
   return {
     nodes: [
       N("cha_in", "channel", { tool: "composio.gmail", match: { s: 1 } }, "Inbox"),
-      N("art_1", "artifact", { fields: ["ref"] }, "Form"),
+      N("art_1", "artifact", { fields: ["ref"], identity_key: "ref" }, "Form"),
       N("pol_1", "policy", {
         check: { relation: "present" }, reads: ["art_1.ref"],
         on_fail: "flag_and_continue", on_absent: "fail", confirmed_by: "c_1",
@@ -98,7 +98,7 @@ describe("no edge she draws is invisible", () => {
   it("every edge in the store is drawn, or folded into a card on purpose", () => {
     const b = board();
     b.nodes.push(
-      N("art_2", "artifact", { fields: ["code"] }, "Line"),
+      N("art_2", "artifact", { fields: ["code"], identity_key: "code" }, "Line"),
       N("pol_2", "policy", {}, "Other check"),
     );
     b.edges.push(

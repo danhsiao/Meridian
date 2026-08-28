@@ -29,7 +29,9 @@ function cleanBoard(): Board {
   return {
     nodes: [
       node("c1", "channel", { tool: "composio.gmail", match: { subject: "x" } }),
-      node("a1", "artifact", { fields: ["f1", "f2"] }),
+      // `identity_key`: a1 is pulled straight out of a message, and a message
+      // can be delivered twice. See extractedFromAMessage().
+      node("a1", "artifact", { fields: ["f1", "f2"], identity_key: "f1" }),
       node("p1", "policy", {
         describes: "f1 has to be filled in",
         check: { relation: "present" },
@@ -79,7 +81,13 @@ describe("registry findings", () => {
     const b = cleanBoard();
     b.nodes.push(node("c2", "channel", { tool: "composio.gmail", match: { subject: "y" } }));
     b.edges.push(edge("e4", "c2", "a1"));
-    const f = elaborate(b).findings.find((x) => x.code === "missing_conditional_key");
+    // a1 already carries an identity_key, so the only way this fires is the
+    // second inbound edge -- which is the condition under test.
+    (b.nodes[1].config as Record<string, unknown>).identity_key = undefined;
+    delete (b.nodes[1].config as Record<string, unknown>).identity_key;
+    const f = elaborate(b).findings.find(
+      (x) => x.code === "missing_conditional_key" && x.evidence.condition === "multiple_sources",
+    );
     expect(f?.evidence).toMatchObject({ key: "identity_key", condition: "multiple_sources" });
   });
 
@@ -474,8 +482,8 @@ describe("on_child_fail: whether a verdict travels up a containment edge", () =>
     return {
       nodes: [
         node("c1", "channel", { tool: "composio.gmail", match: { subject: "x" } }),
-        node("a1", "artifact", { fields: ["f1"] }),
-        node("a2", "artifact", { fields: ["f2"] }),
+        node("a1", "artifact", { fields: ["f1"], identity_key: "f1" }),
+        node("a2", "artifact", { fields: ["f2"], identity_key: "f2" }),
         node("p1", "policy", {
           describes: "f2 has to be filled in",
           check: { relation: "present" },
