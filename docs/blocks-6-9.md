@@ -259,6 +259,69 @@ than silently green.
 
 ---
 
+## The compiler gained three checks, and they are why the score is what it is
+
+The eval findings above are all spec-level, and that pointed at the type system
+rather than at the agent: **the compiler checked that nodes are reachable and
+edges resolve, but never that the values a board declares can be produced or
+consumed.** Three checks now close that, and all three key on graph shape and
+config presence — none mentions a document type, a field name, or an industry.
+
+| Check | What got through before |
+|---|---|
+| **`of` required on every output row** | `output_row_unresolvable` fired when `of` was present and unresolvable, never when absent. Two rows reading `{ fn: "count", label: "How many we processed" }` froze clean and returned `null`. **This one alone would have blocked the freeze.** |
+| **`unmatched_reference`** (blocking) | An `exists_matching` policy reading two artifacts with no `pairs_with` edge between them. Nothing pairs the records, so the check compares values that were never related. The heal loop's comma-splitting patch exists only because this join was missing. |
+| **`on_child_fail`** (new edge key) | The grammar could not express "an invoice fails when a good inside it fails". `verdict_on` names one target and nothing walked a containment edge upward, so `invoices_failed` and `invoices_successful` were **unreachable on any board this system could draw**. |
+
+`on_child_fail` is not a fifth primitive. Containment edges already encode
+parent-child; the key says whether a verdict travels along one, and compiles to
+`compiled.propagations`.
+
+### The runtime verb judges clean parents too, and that is the whole subtlety
+
+`state.propagate` writes a real verdict row for **every** parent on a
+propagating edge, not only the failing ones. A record with no verdict is not in
+`judged`, and anything counting passes counts judged-and-not-failed — so
+omitting the `True` case leaves every clean parent unjudged and "how many were
+clean" returns zero on a board where nothing is wrong. Silent, plausible,
+entirely wrong. There is a test named for exactly that.
+
+### What this does and does not do to the score
+
+**Nothing here makes a test pass.** It makes a board that cannot produce its
+metrics fail to freeze, which is what the gate is for. `final_test` as frozen
+would now be *rejected* — its output rows name nothing to count, and its
+`exists_matching` policy has no join. The score moves when the board is rebuilt
+through another review round and re-frozen.
+
+If the goal became "green suite", the shortest path would be patching the agent
+— which the heal skill already, correctly, refused to do.
+
+### A test that found a bug on its first run
+
+`tests/jargon.test.ts` sweeps every rendered body, option label and registry
+intent for registry key names, relation names and finding codes. It immediately
+caught the new question rendering as *"Each {from} contains {to}"* —
+`endpointNames()` was applied to option labels but never to bodies, so
+placeholders would have been shown to a human. Bodies substitute now.
+
+### Stated, not built
+
+Two advisories designed and deliberately deferred, so the gap is named rather
+than hidden:
+
+- **`unread_field`** — an artifact declares fields that no policy reads and no
+  output row references. The failing board declared four on its goods record and
+  read one.
+- **`unverifiable_field`** — post-run, after an eval: a declared field that
+  extracted `null` across every record in every fixture. On the failing board
+  three field names appeared in no document, so extraction correctly found
+  nothing and every record failed for a reason indistinguishable from a
+  genuinely missing value. That one closes the loop — eval produces evidence,
+  evidence becomes a comment on the board, the board gets corrected, re-freeze —
+  and it needs fixtures, so it is a different kind of check from the other
+  three.
+
 ## Deliberately out of scope
 
 Stated, not half-built:
