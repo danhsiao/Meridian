@@ -49,6 +49,17 @@ class RunState:
     def records(self, node_id: str) -> list[Record]:
         return list(self._records.get(node_id, []))
 
+    def replace(self, node_id: str, records: Iterable[Record]) -> list[Record]:
+        """Swap a node's records wholesale.
+
+        Exists for identity merging, which rewrites a node's set rather than
+        adding to it. Verdicts are keyed by record_id and merging happens before
+        any policy runs, so nothing is orphaned.
+        """
+        kept = list(records)
+        self._records[node_id] = kept
+        return kept
+
     def node_ids(self) -> list[str]:
         return list(self._records.keys())
 

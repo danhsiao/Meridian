@@ -1,0 +1,7 @@
+    # ── {{node_id}} (merge duplicates on {{identity_key}}) ───────────────
+    # The same record can arrive twice -- two forwards of one message, a resend.
+    # `compiled.identity_merges` names the value that says two of them are the
+    # same one. Last-write-wins on a field collision, union on an absent one;
+    # the rule lives in runtime/identity.py and is not restated here.
+    state.replace("{{node_id}}", merge_by_identity_key(state.records("{{node_id}}"), {{identity_key}}))
+

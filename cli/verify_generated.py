@@ -80,6 +80,15 @@ def verify(path: Path, spec: Spec) -> list[str]:
         if node_id not in text:
             findings.append(f"topo_order names {node_id}, which the module never mentions")
 
+    # 5a. every identity merge the compiler resolved is actually emitted. Also
+    #     silent when missing: counts inflate by however many duplicates arrived.
+    for node_id, key in spec.identity_merges.items():
+        if f'merge_by_identity_key(state.records("{node_id}")' not in text:
+            findings.append(
+                f"compiled.identity_merges names {node_id} on {key!r}, "
+                f"which the module never merges"
+            )
+
     # 5. every propagation the compiler resolved is actually emitted. A missing
     #    one is silent: the parents simply stay unjudged, and every "how many
     #    were clean" row returns zero on a board where nothing is wrong.

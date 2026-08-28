@@ -14,32 +14,46 @@ so the mapping is deterministic and cannot drift between runs.
 
 **Projection.** RunState -> the seven metric names the suite uses.
 
-Two of the seven are NOT SCORED, and the reason is a property of the board
-rather than of the runner. `failed_coa` and `coa_success` describe certificates
-that matched nothing -- the reverse direction of the cross-reference. The board
-wires `pol_2`'s verdict onto `art_2` only, so nothing on it ever produces a
-verdict against `art_3`, and there is no honest way to read those two numbers
-out of a run of this spec. Scoring them would mean inventing a check the
-operator never drew. They are reported as `out of scope (no verdict target on
-art_3)` and are a finding for the next review round, not a bug in the agent.
+One of the seven is NOT SCORED, and the reason is a property of the board rather
+than of the runner. `coa_success` counts certificates that matched something,
+and nothing on this board ever produces a verdict against a certificate --
+`pol_2` judges the Batch that looks a certificate up, not the certificate
+itself. Scoring it would mean inventing a check the operator never drew.
+
+`failed_coa` WAS in that category and no longer is. The redrawn board makes Batch
+its own artifact and lands `pol_2`'s verdict on it, so a batch fails exactly when
+no certificate matches it -- which is what the label counts. It is now read as
+`count:art_4:fail`.
+
+That correction was caught by the heal skill reading this file against METRICS
+below and finding they disagreed, which is worth recording: a stale docstring
+made two failing cases look like agent bugs when they were a scoring question.
 """
 from __future__ import annotations
 
 from typing import Any
 
 #: Metric -> how to read it out of a run.
-#: `None` means the board produces no such number; the runner reports it and
-#: does not score it.
+#:
+#: Node ids are this board's vocabulary and they moved when the board was
+#: redrawn, so this table moved with them:
+#:
+#:   art_2  Invoice   art_3  CoA   art_4  Batch   art_5  Goods
+#:
+#: `art_4` used to mean Goods and now means Batch, which is exactly the kind of
+#: silent remap that makes keeping the adapter in one file worth it.
 METRICS: dict[str, str | None] = {
     "invoices_total": "count:art_2",
     "invoices_failed": "count:art_2:fail",
     "invoices_successful": "count:art_2:pass",
-    "goods_failed": "count:art_4:fail",
+    "goods_failed": "count:art_5:fail",
     "coa_total": "count:art_3",
-    "failed_coa": None,
+    # Now scoreable: pol_2 lands its verdict on Batch, and a batch fails exactly
+    # when no certificate matches it. `coa_success` stays out -- it counts
+    # certificates, and nothing on the board judges a certificate.
+    "failed_coa": "count:art_4:fail",
     "coa_success": None,
 }
-
 
 def load(raw: dict[str, Any]) -> list[dict[str, Any]]:
     """Suite format -> the runner's normalised shape."""
@@ -99,4 +113,4 @@ def project(state: dict[str, Any]) -> dict[str, Any]:
 
 #: Printed by the runner so the exclusion is visible in the report rather than
 #: buried in this file.
-UNSCORED_REASON = "no verdict target on art_3: the board never checks a certificate against an invoice"
+UNSCORED_REASON = "no verdict target on art_3: nothing on the board judges a certificate, only the batch that looks one up"

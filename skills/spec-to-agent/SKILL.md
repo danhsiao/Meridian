@@ -83,6 +83,10 @@ These are verbatim constraints, not guidance.
   and say so. Do not compensate.
 - **`fail_handlers` may be empty.** When it is, emit no signal handlers and run
   straight to the output node. Do not invent a wait.
+- **`compiled.identity_merges` names artifacts whose records must be merged.**
+  Emit one merge immediately after that artifact's extraction step and before
+  anything reads it. Skipping it is silent: the run completes and every count
+  over that artifact is inflated by however many times a record arrived twice.
 - **`compiled.propagations` may be empty too.** When it is not, emit one
   `state.propagate(from, to)` per entry, **after every policy and before the
   output**. Use `from` and `to` exactly as the compiler wrote them: the edge

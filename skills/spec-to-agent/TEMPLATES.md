@@ -9,10 +9,16 @@ usually fail the lint. Fill `{{placeholders}}` from the spec; change nothing els
 
 ### Order of steps
 
-One step per `topo_order` entry, in order. Then, between the last policy and the
-output step, one `propagate` call per entry in `compiled.propagations` — those are
-not nodes, so they do not appear in `topo_order`, and they are the one thing you
-emit that the topo order does not name.
+One step per `topo_order` entry, in order. Two things are emitted that `topo_order`
+does not name, because they are not nodes:
+
+- an **identity merge** right after the extraction of each artifact named in
+  `compiled.identity_merges`;
+- a **propagate** call per entry in `compiled.propagations`, after the last policy
+  and before the output.
+
+Both are easy to skip and both are silent when skipped — the run completes and the
+numbers are simply wrong.
 
 ### `module` — The module shell
 
@@ -39,6 +45,7 @@ from typing import Any
 from runtime import outputs, relations
 from runtime.extract import extract, scope_hint
 from runtime.guards import on_absent, subsumes_guard
+from runtime.identity import merge_by_identity_key
 from runtime.helpers import squash
 from runtime.payload import Payload
 from runtime.spec import Spec
@@ -110,6 +117,19 @@ Use only when the parent carries `fields`. The `scope_hint` is what stops the mo
             extraction_hint=scope_hint({{parent_label}}, _parent.fields),
             parent_id=_parent.record_id,
         ))
+```
+
+### `identity` — an entry in `compiled.identity_merges`
+
+**Emit immediately after the artifact's own extraction step, before anything reads it.** The same record can arrive twice -- two forwards of one message -- and every count downstream is wrong until they are merged. `compiled.identity_merges` is `{node_id: field}`; emit one of these per entry.
+
+```python
+    # ── {{node_id}} (merge duplicates on {{identity_key}}) ───────────────
+    # The same record can arrive twice -- two forwards of one message, a resend.
+    # `compiled.identity_merges` names the value that says two of them are the
+    # same one. Last-write-wins on a field collision, union on an absent one;
+    # the rule lives in runtime/identity.py and is not restated here.
+    state.replace("{{node_id}}", merge_by_identity_key(state.records("{{node_id}}"), {{identity_key}}))
 ```
 
 ### `policy_present` — policy, `check.relation == "present"`
@@ -188,9 +208,9 @@ Two operands, both from `reads`.
         state.verdict("{{node_id}}", {{target}}, _record, _ok, "impl")
 ```
 
-### `propagate` — one entry in `compiled.propagations`
+### `propagate` — an entry in `compiled.propagations`
 
-**Placement matters and is not negotiable: after every policy step, before the output step.** Propagation reads verdicts, so every check has to have run first. Emit one call per entry in `compiled.propagations`, using its `from` (the child) and `to` (the parent) exactly as written -- the edge runs parent to child, and verdicts travel the other way, which the compiler has already resolved for you.
+**Placement matters and is not negotiable: after every policy step, before the output step.** Propagation reads verdicts, so every check has to have run first. Use its `from` (the child) and `to` (the parent) exactly as written -- the edge runs parent to child, and verdicts travel the other way, which the compiler has already resolved for you.
 
 ```python
     # ── {{edge_id}} ({{from_id}} -> {{to_id}}, verdicts travel up) ───────

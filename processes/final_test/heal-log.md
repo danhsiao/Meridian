@@ -218,3 +218,99 @@ heal pass.** Per the standing note above, whoever regenerates must re-read this
 log or the split will be discarded a third time.
 
 **Score after re-run: __ / 12** (human fills in).
+
+
+---
+
+## Pass 3 — post-review-round board; every residual failure is spec-level, no patch
+
+**Starting score: 5 / 12** (5 scored passes `TTNU8982561`, `MNBU4371364`,
+`MNBU4407370`, `HLBU6302759`, `MMAU1407799`; 1 discarded `MNBU0458316`; 6
+scored failures). New score left blank for the human to fill on re-run.
+
+This report is against a **redrawn board** (`spec_hash da51e759…`), not the one
+passes 1–2 healed. The review round those passes called for has happened: Batch
+is now its own artifact `art_4` (so the comma-joined `Batch Number` string is
+gone and the pass-1/2 `pol_2` split is no longer needed and not present), Goods
+are `art_5` with real field names, `art_3` carries an `identity_key`, and edge
+`e_6` propagates a good's failure up to its invoice. `pol_1` now lands on
+`art_5`, `pol_2` on `art_4`. Four of the five pass-1 findings are addressed.
+
+Metric map (current adapter): `invoices_total` = count `art_2`;
+`invoices_failed/successful` = propagated verdict on `art_2`; `goods_failed` =
+`pol_1` fails on `art_5`; `coa_total` = count `art_3`; `failed_coa` = `pol_2`
+fails on `art_4`.
+
+### Classification of all six failures
+
+| case | fx | failing metrics | class | evidence in `extracted_state` |
+|---|---|---|---|---|
+| `CAAU4056270` | 2 | invoices_total 1→2, invoices_successful 0→1, goods_failed 2→5, coa_total 5→10 | **extraction-failure** | two `art_1` (`…e70a…`, `…e4259…`); every downstream node carries both copies |
+| `MNBU3974949` | 2 | invoices_total 1→2, invoices_failed 0→1, goods_failed 0→19, coa_total 17→34 | **extraction-failure** | two `art_1` (`…d555…`, `…d34b…`); records exactly doubled |
+| `CGMU5630052` | 2 | invoices_total 1→2, invoices_failed 0→1, goods_failed 0→3 | **extraction-failure** | two `art_1` (`…c435…`, `…c18f…`); the redundant forward's goods extract as null-FDA |
+| `MNBU3852977` | 1 | goods_failed 6→4 | **logic-failure** | records exact; 2 `art_5` pass `pol_1` with `FDA` present but `ANDA` null |
+| `MCAU6047165` | 1 | failed_coa 1→0 | **extraction-failure** | `art_3` Batch set == `art_4` Batch set exactly (14 = 14); no batch can fail |
+| `020-07721814` | 1 | failed_coa 1→0 | **extraction-failure** | `art_3` Batch set == `art_4` Batch set exactly (4 = 4); no batch can fail |
+
+### Root cause per case (one line, evidence named)
+
+- `CAAU4056270`, `MNBU3974949`, `CGMU5630052` — the label suite folds two
+  forwarded copies of one shipment into a single case, but the agent makes one
+  `art_1` per payload and nothing collapses the copies: `art_2`/`art_5` have no
+  `identity_key`, and the one merge that exists (`art_3` on `Batch Number`) is
+  defeated because the two forwards transcribe the same batch as `UCB26009` vs
+  `UCB26009A`. Extraction is faithfully returning both documents; the counts are
+  inflated because there is no cross-payload dedup rule on the board.
+- `CGMU5630052` specifically — the extra forward (`…c435…`) carries the invoice
+  data in the email *body* table (which repeats the line three times and has no
+  FDA column), so its three goods extract null-FDA and drag `goods_failed` to 3
+  and `invoices_failed` to 1. Both vanish once the redundant forward is dropped;
+  neither is an independent bug.
+- `MNBU3852977` — right records, wrong verdict. The two goods that pass
+  (`art_5:ab5528de…` FDA `62KCC10`, `art_5:d900d3cb…` FDA `61EAA08`) both have
+  `ANDA` null. `pol_1.describes` requires **FDA, HTS, ANDA, REG and NDC** present
+  in every good, but the frozen `pol_1.reads` is only `["art_5.FDA"]`, so the
+  agent checks FDA alone and lets an absent ANDA through.
+- `MCAU6047165`, `020-07721814` — `failed_coa` needs one batch to have no
+  matching certificate, but the extracted `art_3` Batch-Number set is *identical*
+  to the `art_4` set (14=14 and 4=4 respectively). The certificate PDFs carry no
+  readable text in the fixtures (e.g. `SM…COC&COA.PDF` parts are empty), so
+  `art_3` is being read off the same email batch list as `art_4`; the one
+  genuinely-absent certificate is invisible to extraction.
+
+### Why nothing is patched inside `processes/final_test/agent/`
+
+Each root cause sits outside the boundary, and forcing any of them green would be
+exactly the invented rule the skill warns against:
+
+1. **Duplicate forwards.** Collapsing them means an `identity_key` on `art_1`/
+   `art_2` (dedup by thread or Invoice Number) that the board does not carry.
+   Writing that into the agent invents a merge the operator never drew — the same
+   finding pass 1 halted on, still unaddressed by the review round.
+2. **Batch-suffix drift (`UCB26009` vs `UCB26009A`).** Widening the `art_3` merge
+   or `pol_2` comparison to bridge them, or narrowing `pol_2` to expose the
+   `failed_coa` cases, both turn on whether a trailing letter is significant.
+   `squash` normalises case and whitespace and cannot decide this; it "needs a
+   human ruling," as pass 1 already recorded. Changing it to make a case pass
+   would violate "never widen a comparison just to make a case pass."
+3. **`pol_1` reads only `FDA`.** The describes lists five fields; the compiled
+   `reads` lists one. Hard-coding HTS/ANDA/REG/NDC into the agent contradicts the
+   frozen IR and breaks the property that the agent knows no field the spec did
+   not name (`runtime/extract.py`). This is an authoring defect in `reads`, a
+   re-freeze, not a heal.
+4. **Empty certificate PDFs.** No `source_hint` or `scope_hint` can recover a
+   batch number that is not in the payload text. This is a fixture/extraction
+   fidelity limit, not orchestration.
+
+### Halted — next action is a review round, not another heal pass
+
+Concretely, the next freeze needs to: give `art_2` an `identity_key` (Invoice
+Number) and/or dedup `art_1` by thread so forwarded copies collapse; rule on the
+trailing-batch-letter question and encode it (a `squash` variant or a spec
+comment) so `art_3` merges and `failed_coa` reads honestly; widen `pol_1.reads`
+to all five good fields to match its own description; and either supply readable
+certificate text in the fixtures or accept that `failed_coa` is unobservable
+here. None is patchable in `agent/`.
+
+**Score after re-run: 5 / 12** (unchanged — this pass makes no code change by
+design; recorded so the reasoning is on file for the review round).
