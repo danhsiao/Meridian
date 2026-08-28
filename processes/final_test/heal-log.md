@@ -116,3 +116,23 @@ document, and draw the propagation edge. Then re-freeze and regenerate. The loop
 is working as designed — it is just a longer loop than one pass, and the report
 is what made the difference between "nine cases are red" and a named cause for
 each.
+
+
+---
+
+## Note — pass 1 was discarded by a regeneration
+
+After `cli gen` became skill-driven, `final_test` was regenerated and the
+regenerated `agent.py` does not carry pass 1. `MNBU4407370` is failing again
+with the original signature (`invoices_failed: expected 0, got 4`).
+
+This is not a mistake in either half. `/heal-agent` patches
+`processes/<id>/agent/` by design, and `cli gen` overwrites that directory by
+design; nothing currently guards the overlap. Re-running `/heal-agent` against
+the current report reproduces the fix — the classification and root cause above
+still hold, and the diff is two lines.
+
+The durable answers, none built yet, are listed in
+[docs/blocks-6-9.md](../../docs/blocks-6-9.md#healing-and-regeneration-are-in-tension-and-nothing-resolves-it-yet).
+Until one exists: **generate first, heal second, and never regenerate without
+re-reading this log.**
