@@ -1,0 +1,60 @@
+{
+  "spec_version": "1.0",
+  "registry_version": "1.0",
+  "process_id": "synthetic_001",
+  "spec_hash": "sha256:synthetic",
+  "nodes": [
+    { "id": "c1", "primitive": "channel", "label": "Source",
+      "config": { "describes": "where items arrive", "tool": "http.get", "match": "any" } },
+    { "id": "a1", "primitive": "artifact", "label": "Item",
+      "config": { "describes": "one thing that arrived" } },
+    { "id": "a2", "primitive": "artifact", "label": "Part",
+      "config": { "describes": "a part of an item", "fields": ["f1", "f2"] } },
+    { "id": "a3", "primitive": "artifact", "label": "Token",
+      "config": { "describes": "a token that should match a part", "fields": ["f1"] } },
+    { "id": "a4", "primitive": "artifact", "label": "Line",
+      "config": { "describes": "a line on a part", "fields": ["f3", "f4"] } },
+    { "id": "p1", "primitive": "policy", "label": "Values present",
+      "config": { "describes": "every line carries both of its values",
+                  "check": { "relation": "present" },
+                  "reads": ["a4.f3", "a4.f4"],
+                  "verdict_on": "a4", "on_fail": "flag_and_continue", "on_absent": "fail",
+                  "confirmed_by": "c_01" } },
+    { "id": "p2", "primitive": "policy", "label": "Part has token",
+      "config": { "describes": "every part has a token with the same f1",
+                  "check": { "relation": "exists_matching", "params": { "on": "f1" } },
+                  "reads": ["a2.f1", "a3.f1"],
+                  "verdict_on": "a2", "on_fail": "flag_and_continue", "on_absent": "fail",
+                  "confirmed_by": "c_02" } },
+    { "id": "o1", "primitive": "output", "label": "Result",
+      "config": { "describes": "what the run found", "rows": [
+        { "label": "parts_total",  "fn": "count", "of": "a2" },
+        { "label": "parts_failed", "fn": "count", "of": "a2", "where": "fail" },
+        { "label": "lines_failed", "fn": "count", "of": "a4", "where": "fail" },
+        { "label": "failed_f1",    "fn": "list",  "of": "a2.f1", "where": "fail" }
+      ] } }
+  ],
+  "edges": [
+    { "id": "e1", "from": "c1", "to": "a1", "config": {} },
+    { "id": "e2", "from": "a1", "to": "a2", "config": { "rel": "contains", "cardinality": "many" } },
+    { "id": "e3", "from": "a1", "to": "a3", "config": { "rel": "contains", "cardinality": "many" } },
+    { "id": "e4", "from": "a2", "to": "a4", "config": { "rel": "contains", "cardinality": "many" } },
+    { "id": "e5", "from": "a4", "to": "p1", "config": {} },
+    { "id": "e6", "from": "a2", "to": "p2", "config": {} },
+    { "id": "e7", "from": "a3", "to": "p2", "config": {} },
+    { "id": "e8", "from": "p1", "to": "o1", "config": {} },
+    { "id": "e9", "from": "p2", "to": "o1", "config": {} }
+  ],
+  "compiled": {
+    "edge_roles": { "e1": "derive", "e2": "contain", "e3": "contain", "e4": "contain",
+                    "e5": "read", "e6": "read", "e7": "read", "e8": "outcome", "e9": "outcome" },
+    "topo_order": ["c1", "a1", "a2", "a3", "a4", "p1", "p2", "o1"],
+    "loop_scopes": { "a2": ["e2"], "a3": ["e3"], "a4": ["e2", "e4"],
+                     "p1": ["e2", "e4"], "p2": ["e2"] },
+    "verdict_targets": { "p1": "a4", "p2": "a2" },
+    "identity_merges": {},
+    "joins": [],
+    "fail_handlers": []
+  },
+  "provenance": { "comments": ["c_01", "c_02"], "assumptions": [] }
+}
