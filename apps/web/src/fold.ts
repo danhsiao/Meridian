@@ -50,6 +50,15 @@ export interface Card {
 
 export type DrawnEdgeKind =
   | "derive" | "join" | "merge" | "read" | "outcome" | "value" | "input" | "fail"
+  /**
+   * Containment, drawn rather than folded.
+   *
+   * Normally the indentation IS this edge and there is no line. But a folded
+   * card can only stand for one edge, so a second edge between the same pair
+   * cancels the fold — and then the containment has to be drawn like anything
+   * else, or cancelling the fold would hide the edge it was meant to reveal.
+   */
+  | "contain"
   /** The finished report going out. Once, at the end of the run. */
   | "report"
   /** Two records, relationship not decided yet. Drawn, and asking. */
@@ -83,9 +92,30 @@ export interface Folded {
 export function fold(board: Board): Folded {
   const g = new Graph(board);
 
+  /**
+   * How many edges connect each unordered pair of nodes.
+   *
+   * A folded card can represent exactly ONE edge — the indentation, or the row.
+   * A second edge between the same two nodes has nowhere to land: both its
+   * endpoints resolve to the same card, and the draw loop below used to bail on
+   * that, so the edge sat in the store blocking freeze, invisible on the board,
+   * and refused as a duplicate on redraw. Same class as the swallowed report
+   * edge this file's tests are named for, in its other form.
+   *
+   * So folding is cancelled for a pair with more than one edge: both cards stay
+   * on the canvas and both edges get drawn.
+   */
+  const pairCount = new Map<string, number>();
+  const pairKey = (a: NodeId, b: NodeId) => [a, b].sort().join("\u0000");
+  for (const e of board.edges) {
+    const k = pairKey(e.from, e.to);
+    pairCount.set(k, (pairCount.get(k) ?? 0) + 1);
+  }
+  const singleEdgeBetween = (a: NodeId, b: NodeId) => (pairCount.get(pairKey(a, b)) ?? 0) === 1;
+
   const parentOf = new Map<NodeId, NodeId>();
   for (const e of board.edges) {
-    if (isContainment(g, e)) parentOf.set(e.to, e.from);
+    if (isContainment(g, e) && singleEdgeBetween(e.from, e.to)) parentOf.set(e.to, e.from);
   }
 
   // A policy reading exactly one artifact belongs to that artifact. A policy
@@ -102,7 +132,9 @@ export function fold(board: Board): Folded {
     // resolved relation is a check still being defined, and folding it away is
     // precisely when she can least afford to lose the card: a cross-reference
     // needs a second edge drawn to it, and there is nothing left to drag to.
-    if (reads.length === 1 && policyIsResolved(p)) hostOf.set(p.id, reads[0].id);
+    if (reads.length === 1 && policyIsResolved(p) && singleEdgeBetween(p.id, reads[0].id)) {
+      hostOf.set(p.id, reads[0].id);
+    }
   }
 
   const isFolded = (id: NodeId) => parentOf.has(id) || hostOf.has(id);
@@ -132,7 +164,12 @@ export function fold(board: Board): Folded {
   for (const e of board.edges) {
     // Folded away: the containment IS the indentation, and a single-read edge
     // IS the row. Drawing them too would say the same thing twice.
-    if (isContainment(g, e)) continue;
+    //
+    // Conditioned on the fold having actually HAPPENED, not merely on the edge
+    // being foldable. A containment edge whose fold was cancelled above is an
+    // ordinary edge and has to be drawn, or cancelling the fold would hide the
+    // very edge it was meant to reveal.
+    if (isContainment(g, e) && parentOf.get(e.to) === e.from) continue;
     if (hostOf.get(e.to) === e.from) continue;
 
     const kind = drawnKind(g, e);
@@ -140,9 +177,13 @@ export function fold(board: Board): Folded {
 
     const fromCard = cardOf[e.from];
     const toCard = cardOf[e.to];
-    // Both endpoints resolve, or the edge has nowhere to land. Can only happen
-    // if a node was folded into a card that itself got folded, which the
-    // parent/host rules prevent — but bail rather than draw a ghost.
+    // Both endpoints resolve, or the edge has nowhere to land.
+    //
+    // `fromCard === toCard` is now reachable only through a genuine self-loop,
+    // which `validate` refuses at creation. It used to be reachable for any
+    // second edge between a parent and its folded child, and this line is what
+    // swallowed it — the fold cancellation above is the actual fix, and this
+    // stays as a bail rather than drawing a ghost.
     if (!fromCard || !toCard || fromCard === toCard) continue;
 
     drawn.push({
@@ -196,9 +237,11 @@ function drawnKind(g: Graph, e: Edge): DrawnEdgeKind | null {
   if (from === "artifact" && to === "artifact") {
     if (e.config.rel === "pairs_with") return "join";
     if (e.config.rel === "builds_from") return "merge";
-    // `contains` is folded into the parent card; anything else means she has
-    // not said yet, and an undrawn edge is worse than an undecided one.
-    return e.config.rel === "contains" ? null : "undecided";
+    // `contains` is normally folded into the parent card, and the draw loop
+    // has already skipped it in that case. Reaching here means the fold was
+    // cancelled, so it gets a line. Anything else means she has not said yet,
+    // and an undrawn edge is worse than an undecided one.
+    return e.config.rel === "contains" ? "contain" : "undecided";
   }
   return "invalid";
 }

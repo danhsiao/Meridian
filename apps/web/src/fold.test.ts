@@ -118,3 +118,48 @@ describe("folding", () => {
     expect(drawn?.toCard).toBe("o1");
   });
 });
+
+describe("a second edge between a parent and its folded child", () => {
+  const N = (id: string, primitive: any, config: any = {}, label?: string) =>
+    ({ id, primitive, label: label ?? id, config: { describes: "x", ...config } }) as any;
+
+  /** a1 contains a2, and a2 also points back at a1. */
+  function doubled(): any {
+    return {
+      nodes: [
+        N("cha_1", "channel", { tool: "composio.gmail", match: { s: 1 } }),
+        N("art_1", "artifact", { fields: ["ref"] }, "Parent"),
+        N("art_2", "artifact", { fields: ["code"] }, "Child"),
+      ],
+      edges: [
+        { id: "e1", from: "cha_1", to: "art_1", config: {} },
+        { id: "e2", from: "art_1", to: "art_2", config: { rel: "contains" } },
+        { id: "e3", from: "art_2", to: "art_1", config: {} },
+      ],
+    };
+  }
+
+  it("cancels the fold, so both edges are visible", () => {
+    // A folded card can stand for exactly ONE edge. The second used to resolve
+    // both endpoints to the same card and get dropped: in the store, blocking
+    // freeze, invisible, and refused as a duplicate on redraw.
+    const f = fold(doubled());
+    const drawn = f.edges.map((d) => d.edge.id);
+    expect(drawn).toContain("e2");
+    expect(drawn).toContain("e3");
+  });
+
+  it("puts both cards back on the canvas", () => {
+    const f = fold(doubled());
+    expect(f.cards.map((c) => c.node.id)).toContain("art_2");
+    expect(f.cardOf.art_2).toBe("art_2");
+  });
+
+  it("still folds when only one edge connects the pair", () => {
+    const b = doubled();
+    b.edges = b.edges.filter((e: any) => e.id !== "e3");
+    const f = fold(b);
+    expect(f.cardOf.art_2).toBe("art_1");
+    expect(f.edges.map((d) => d.edge.id)).not.toContain("e2");
+  });
+});

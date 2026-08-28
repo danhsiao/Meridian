@@ -12,7 +12,7 @@
 // invisible again.
 
 import { describe, expect, it } from "vitest";
-import { elaborate } from "@engine/compiler";
+import { elaborate, validate } from "@engine/compiler";
 import type { Board } from "@engine/compiler";
 import { fold } from "../apps/web/src/fold";
 
@@ -111,10 +111,21 @@ describe("no edge she draws is invisible", () => {
       { id: "e8", from: "art_2", to: "art_1", config: {} },
     );
 
-    const drawn = new Set(fold(b).edges.map((d) => d.edge.id));
-    const foldedIn = new Set(["e6"]);
+    const f = fold(b);
+    const drawn = new Set(f.edges.map((d) => d.edge.id));
+
+    // The invariant, rather than a hand-listed set of exceptions: an edge may
+    // go undrawn ONLY when both its endpoints land on the same card, because
+    // then the card structure itself is the edge — the indentation, or the row.
+    // Anything else is an edge in the store with nothing on screen, which
+    // blocks freeze, cannot be selected, and is refused as a duplicate on
+    // redraw. Stated this way it also covers folds a future rule invents.
     for (const e of b.edges) {
-      expect(drawn.has(e.id) || foldedIn.has(e.id)).toBe(true);
+      const representedByACard = f.cardOf[e.from] === f.cardOf[e.to];
+      expect(
+        drawn.has(e.id) || representedByACard,
+        `${e.id} (${e.from} -> ${e.to}) is neither drawn nor folded into a card`,
+      ).toBe(true);
     }
   });
 

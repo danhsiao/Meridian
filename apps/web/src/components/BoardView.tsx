@@ -42,6 +42,9 @@ const EDGE_COLOR: Record<string, string> = {
   report: "#6aa9ff",
   invalid: "#ff6b6b",
   join: "#7bd88f",
+  // Containment is normally the indentation on a card rather than a line. A
+  // drawn one means its fold was cancelled by a second edge to the same pair.
+  contain: "#7bd88f",
   merge: "#7bd88f",
   input: "#8b93a7",
   fail: "#ff6b6b",
