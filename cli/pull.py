@@ -13,7 +13,7 @@ from typing import Any
 
 from runtime import env
 
-from .paths import spec_path
+from .paths import PROCESSES, spec_path
 
 
 def _psql(sql: str) -> str:
@@ -67,6 +67,16 @@ def pull(spec_hash: str, process_id: str | None = None) -> str:
     process_id = process_id or spec["process_id"]
     path = spec_path(process_id)
     path.parent.mkdir(parents=True, exist_ok=True)
+
+    # A process directory is an importable package, because the Temporal
+    # activity loads a generated agent by dotted module path. Without this
+    # marker `cli run` dies on ModuleNotFoundError -- and it dies inside a
+    # workflow activity, which is a long way from the command that caused it.
+    # Written here rather than by `cli gen` so the directory is well-formed from
+    # the moment it exists.
+    (path.parent / "__init__.py").touch(exist_ok=True)
+    (PROCESSES / "__init__.py").touch(exist_ok=True)
+
     path.write_text(json.dumps(spec, indent=2, sort_keys=True) + "\n")
     print(f"pulled {spec['spec_hash']} -> {path.relative_to(path.parents[2])}")
     return process_id
