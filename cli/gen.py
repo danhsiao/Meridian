@@ -57,8 +57,22 @@ def emit_channel(spec: Spec, node_id: str) -> str:
 
 
 def emit_artifact(spec: Spec, node_id: str) -> str:
+    """Pick between extracting from the payload and extracting inside a parent.
+
+    The discriminator is whether the parent carries fields of its own, not
+    merely whether a parent exists. A parent with no fields is a pass-through
+    envelope -- freeze only permits a fieldless artifact when it holds child
+    records -- so it has no values to narrow an extraction by, and asking for
+    "the ones belonging to this <label>" with nothing after it is worse than
+    asking for nothing: it is an instruction the model cannot act on, and it
+    changes the prompt without adding information.
+
+    Found by diffing generated output against the hand-written reference agent,
+    which is the entire reason that file is kept.
+    """
     parent = spec.parent_of(node_id)
-    if parent is None or spec.primitive(parent) == "channel":
+    parent_has_fields = bool(parent and spec.config(parent).get("fields"))
+    if parent is None or spec.primitive(parent) == "channel" or not parent_has_fields:
         return fill("artifact_from_payload", node_id=node_id, parent_id=_literal(parent or ""))
     return fill(
         "artifact_nested",

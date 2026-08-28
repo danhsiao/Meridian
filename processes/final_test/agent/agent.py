@@ -55,32 +55,40 @@ def run(payloads: list[dict[str, Any]], spec_path: str) -> dict[str, Any]:
             ))
 
 
-    # ── art_2 (artifact, inside "art_1") ─────────────────────
-    # Nested a level deeper, so the extraction has to say which parent it
-    # belongs to or it returns every row in the payload for every parent.
+    # ── art_2 (artifact, from the payload) ─────────────────────────
     _config = spec.config("art_2")
-    for _parent in state.records("art_1"):
-        state.add("art_2", extract(
-            payload_of[_parent.source],
-            node_id="art_2", label=spec.label("art_2"),
-            fields=_config.get("fields"), source_hint=_config.get("source_hint"),
-            extraction_hint=scope_hint("Email", _parent.fields),
-            parent_id=_parent.record_id,
-        ))
+    _parent_id = "art_1"
+    if _parent_id and spec.primitive(_parent_id) == "artifact":
+        _parents = state.records(_parent_id)
+    else:
+        _parents = [None]
+    for _parent in _parents:
+        for _item in ([payload_of[_parent.source]] if _parent else items):
+            state.add("art_2", extract(
+                _item,
+                node_id="art_2", label=spec.label("art_2"),
+                fields=_config.get("fields"), source_hint=_config.get("source_hint"),
+                extraction_hint=_config.get("extraction_hint"),
+                parent_id=_parent.record_id if _parent else None,
+            ))
 
 
-    # ── art_3 (artifact, inside "art_1") ─────────────────────
-    # Nested a level deeper, so the extraction has to say which parent it
-    # belongs to or it returns every row in the payload for every parent.
+    # ── art_3 (artifact, from the payload) ─────────────────────────
     _config = spec.config("art_3")
-    for _parent in state.records("art_1"):
-        state.add("art_3", extract(
-            payload_of[_parent.source],
-            node_id="art_3", label=spec.label("art_3"),
-            fields=_config.get("fields"), source_hint=_config.get("source_hint"),
-            extraction_hint=scope_hint("Email", _parent.fields),
-            parent_id=_parent.record_id,
-        ))
+    _parent_id = "art_1"
+    if _parent_id and spec.primitive(_parent_id) == "artifact":
+        _parents = state.records(_parent_id)
+    else:
+        _parents = [None]
+    for _parent in _parents:
+        for _item in ([payload_of[_parent.source]] if _parent else items):
+            state.add("art_3", extract(
+                _item,
+                node_id="art_3", label=spec.label("art_3"),
+                fields=_config.get("fields"), source_hint=_config.get("source_hint"),
+                extraction_hint=_config.get("extraction_hint"),
+                parent_id=_parent.record_id if _parent else None,
+            ))
 
 
     # ── art_4 (artifact, inside "art_2") ─────────────────────
@@ -116,16 +124,14 @@ def run(payloads: list[dict[str, Any]], spec_path: str) -> dict[str, Any]:
         _subject = state.field(_record, _subject_path)
         _ok = on_absent([_subject], _config["on_absent"])
         if _ok is None:
+            # `squash` rather than exact equality: the two sides are transcribed
+            # from different documents. The comparison is passed into the
+            # relation, so the engine's definition of a match is untouched.
             # HEAL PASS 1 (logic-failure). The subject field can hold several
             # values in one string -- the board models this as a field on the
             # parent rather than as its own artifact, so a one-to-many arrives
             # comma-joined. Comparing the joined string against a single
             # candidate never matches. Split, and require every part to match.
-            #
-            # `squash` rather than exact equality: the two sides are transcribed
-            # from different documents. Both the split and the comparison are
-            # passed into the relation as data, so the engine's own definition
-            # of a match is untouched and the change stays in this process.
             _parts = [_p for _p in str(_subject).split(",") if _p.strip()]
             _ok = all(relations.exists_matching(_p, _candidates, key=squash) for _p in _parts)
         state.verdict("pol_2", "art_2", _record, _ok, f"exists_matching on {_candidate_path}")
