@@ -1,0 +1,13 @@
+    # ── {{node_id}} (policy: {{relation}}, verdict on {{target}}) ────────
+    _config = spec.config("{{node_id}}")
+    _left_path, _right_path = _config["reads"]
+    for _record in state.records({{target}}):
+        _left = state.field(_record, _left_path)
+        _right = state.field(_record, _right_path)
+        if _right is None:
+            _right = next(iter(state.values(_right_path)), None)
+        _ok = on_absent([_left, _right], _config["on_absent"])
+        if _ok is None:
+            _ok = relations.{{relation}}(_left, _right)
+        state.verdict("{{node_id}}", {{target}}, _record, _ok, "{{relation}}")
+

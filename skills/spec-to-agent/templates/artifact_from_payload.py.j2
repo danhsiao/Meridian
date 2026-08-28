@@ -1,0 +1,17 @@
+    # ── {{node_id}} (artifact, from the payload) ─────────────────────────
+    _config = spec.config("{{node_id}}")
+    _parent_id = {{parent_id}}
+    if _parent_id and spec.primitive(_parent_id) == "artifact":
+        _parents = state.records(_parent_id)
+    else:
+        _parents = [None]
+    for _parent in _parents:
+        for _item in ([payload_of[_parent.source]] if _parent else items):
+            state.add("{{node_id}}", extract(
+                _item,
+                node_id="{{node_id}}", label=spec.label("{{node_id}}"),
+                fields=_config.get("fields"), source_hint=_config.get("source_hint"),
+                extraction_hint=_config.get("extraction_hint"),
+                parent_id=_parent.record_id if _parent else None,
+            ))
+

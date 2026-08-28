@@ -1,0 +1,14 @@
+    # ── {{node_id}} (policy: exists_matching, verdict on {{target}}) ─────
+    _config = spec.config("{{node_id}}")
+    _subject_path, _candidate_path = _config["reads"]
+    _candidates = state.values(_candidate_path)
+    for _record in state.records({{target}}):
+        _subject = state.field(_record, _subject_path)
+        _ok = on_absent([_subject], _config["on_absent"])
+        if _ok is None:
+            # `squash` rather than exact equality: the two sides are transcribed
+            # from different documents. The comparison is passed into the
+            # relation, so the engine's definition of a match is untouched.
+            _ok = relations.exists_matching(_subject, _candidates, key=squash)
+        state.verdict("{{node_id}}", {{target}}, _record, _ok, f"exists_matching on {_candidate_path}")
+

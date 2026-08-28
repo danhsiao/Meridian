@@ -1,0 +1,13 @@
+    # ── {{node_id}} (artifact, inside {{parent_id}}) ─────────────────────
+    # Nested a level deeper, so the extraction has to say which parent it
+    # belongs to or it returns every row in the payload for every parent.
+    _config = spec.config("{{node_id}}")
+    for _parent in state.records({{parent_id}}):
+        state.add("{{node_id}}", extract(
+            payload_of[_parent.source],
+            node_id="{{node_id}}", label=spec.label("{{node_id}}"),
+            fields=_config.get("fields"), source_hint=_config.get("source_hint"),
+            extraction_hint=scope_hint({{parent_label}}, _parent.fields),
+            parent_id=_parent.record_id,
+        ))
+

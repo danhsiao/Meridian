@@ -1,0 +1,15 @@
+    # ── {{node_id}} (policy: impl, verdict on {{target}}) ────────────────
+    # The body below is pasted verbatim from the frozen spec. It was written by
+    # the review agent, passed the AST validator before the mutation was ever
+    # written, and was confirmed by a human in their own field names.
+    # verify_generated.py asserts it is byte-identical to the spec's impl.body.
+{{body}}
+    _config = spec.config("{{node_id}}")
+    _signature = {{signature}}
+    for _record in state.records({{target}}):
+        _values = [state.field(_record, _path) for _path in _signature]
+        _ok = on_absent(_values, _config["on_absent"])
+        if _ok is None:
+            _ok = bool(check(*_values))
+        state.verdict("{{node_id}}", {{target}}, _record, _ok, "impl")
+

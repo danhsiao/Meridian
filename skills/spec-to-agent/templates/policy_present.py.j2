@@ -1,0 +1,10 @@
+    # ── {{node_id}} (policy: present, verdict on {{target}}) ─────────────
+    _config = spec.config("{{node_id}}")
+    _relation = _config["check"]["relation"]
+    for _record in state.records({{target}}):
+        _values = [state.field(_record, _path) for _path in _config["reads"]]
+        _ok = None if subsumes_guard(_relation) else on_absent(_values, _config["on_absent"])
+        if _ok is None:
+            _ok = relations.present(_values)
+        state.verdict("{{node_id}}", {{target}}, _record, _ok, f"present over {_config['reads']}")
+

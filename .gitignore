@@ -21,3 +21,4 @@ venv/
 processes/*/captured/
 
 .DS_Store
+.cache/

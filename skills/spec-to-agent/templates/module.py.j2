@@ -1,0 +1,39 @@
+"""GENERATED from a frozen spec. Do not hand-edit for a passing test.
+
+    process:   {{process_id}}
+    spec_hash: {{spec_hash}}
+    topo:      {{topo_order}}
+
+Regenerate with `cli gen --process {{process_id}}`.
+
+This module is orchestration: one step per entry in `compiled.topo_order`, in
+order, calling verbs that live in `runtime/`. It defines no logic of its own --
+`cli/verify_generated.py` asserts that any function it does define is
+byte-identical to an `impl.body` in the spec.
+"""
+from __future__ import annotations
+
+from typing import Any
+
+from runtime import outputs, relations
+from runtime.extract import extract, scope_hint
+from runtime.guards import on_absent, subsumes_guard
+from runtime.helpers import squash
+from runtime.payload import Payload
+from runtime.spec import Spec
+from runtime.state import RunState
+
+{{assumptions}}
+
+
+def run(payloads: list[dict[str, Any]], spec_path: str) -> dict[str, Any]:
+    spec = Spec.load(spec_path)
+    state = RunState()
+    items = [Payload.from_dict(p) if isinstance(p, dict) else p for p in payloads]
+    payload_of = {p.id: p for p in items}
+
+{{steps}}
+    return {
+        "outputs": outputs.rows(state, spec.config(OUTPUT_NODE).get("rows", [])),
+        "extracted_state": state.extracted(),
+    }
