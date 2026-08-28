@@ -121,6 +121,9 @@
         ],
         "rel_is_pairs_with": [
           "on"
+        ],
+        "rel_is_contains": [
+          "on_child_fail"
         ]
       },
       "optional": [
@@ -166,6 +169,10 @@
           2,
           3,
           5
+        ],
+        "on_child_fail": [
+          "ignore",
+          "fail_parent"
         ]
       }
     }
@@ -212,11 +219,11 @@
     },
     "policy.check": {
       "binding": "derived",
-      "intent": "{it} \u2014 here is what we understood. Is that right?"
+      "intent": "{it} — here is what we understood. Is that right?"
     },
     "policy.impl": {
       "binding": "derived",
-      "intent": "{it} \u2014 here is what we understood. Is that right?"
+      "intent": "{it} — here is what we understood. Is that right?"
     },
     "policy.reads": {
       "binding": "derived",
@@ -257,14 +264,14 @@
     },
     "output.rows": {
       "binding": "prompt",
-      "intent": "What should {it} tell you at the end? Write one line for each number or list you'd want \u2014 for example \u201chow many we processed\u201d, or \u201cwhich ones need chasing\u201d."
+      "intent": "What should {it} tell you at the end? Write one line for each number or list you'd want — for example “how many we processed”, or “which ones need chasing”."
     },
     "edge.rel": {
       "binding": "control",
       "options_from": "enum",
       "extensible": false,
-      "intent": "{it} \u2014 how do these two relate?",
-      "closed_because": "one record can sit inside another, pair with another, or be built from several \u2014 the compiler has no fourth shape",
+      "intent": "{it} — how do these two relate?",
+      "closed_because": "one record can sit inside another, pair with another, or be built from several — the compiler has no fourth shape",
       "option_labels": {
         "contains": "Each {from} contains {to}",
         "pairs_with": "Each {from} pairs with {to}, matched on a shared value",
@@ -274,7 +281,7 @@
     "edge.on": {
       "binding": "control",
       "options_from": "shared_fields_of_endpoints",
-      "intent": "{it} \u2014 which value connects these two?"
+      "intent": "{it} — which value connects these two?"
     },
     "edge.cardinality": {
       "binding": "control",
@@ -285,7 +292,7 @@
         "one": "One {to} per {from}",
         "many": "Many {to} per {from}"
       },
-      "intent": "{it} \u2014 does one come through at a time, or many?"
+      "intent": "{it} — does one come through at a time, or many?"
     },
     "edge.on_exhausted": {
       "binding": "control",
@@ -342,6 +349,17 @@
     "output.describes": {
       "binding": "prompt",
       "intent": "What gets reported at the end?"
+    },
+    "edge.on_child_fail": {
+      "binding": "control",
+      "options_from": "enum",
+      "extensible": false,
+      "closed_because": "a parent either inherits its children's failures or it does not; a third behaviour would need a rule about which children count, and that is a check, not a property of the line between two cards",
+      "option_labels": {
+        "fail_parent": "Yes — the {from} is only good if all of its {to} are",
+        "ignore": "No — they're judged separately"
+      },
+      "intent": "Each {from} contains {to}. If a {to} fails a check, does the {from} fail too?"
     }
   },
   "templates": {
@@ -417,6 +435,11 @@
         "timeout",
         "on_exhausted"
       ]
+    },
+    "edge.propagate": {
+      "reads": [
+        "on_child_fail"
+      ]
     }
   },
   "reads_compiler": [
@@ -425,7 +448,8 @@
     "edge.cardinality",
     "artifact.identity_key",
     "policy.verdict_on",
-    "policy.confirmed_by"
+    "policy.confirmed_by",
+    "edge.on_child_fail"
   ],
   "askable_if": {
     "policy.on_absent": "policy_described_and_bound",

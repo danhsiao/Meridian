@@ -72,6 +72,24 @@ export interface Join {
 }
 
 /**
+ * A containment edge a verdict travels along.
+ *
+ * `verdict_on` names one target per policy, and nothing else walks a
+ * containment edge upward — so without this the grammar simply cannot express
+ * "the parent fails when one of its children does", and a metric as ordinary as
+ * "how many parents were clean" is unreachable on every board the system can
+ * draw. Cycle-free by construction: the data subgraph already is, and these are
+ * a subset of its edges.
+ */
+export interface Propagation {
+  edge: EdgeId;
+  /** The child whose verdicts are read. */
+  from: NodeId;
+  /** The parent that inherits them. */
+  to: NodeId;
+}
+
+/**
  * What freeze() writes into the spec and codegen reads. Every field here is
  * something the compiler resolved so that Python never re-derives it.
  */
@@ -82,6 +100,8 @@ export interface IR {
   verdict_targets: Record<NodeId, NodeId>; // policy -> artifact that takes the failure
   identity_merges: Record<NodeId, string>;
   joins: Join[];
+  /** contains edges carrying on_child_fail: "fail_parent" */
+  propagations: Propagation[];
   fail_handlers: FailHandler[];
 }
 
@@ -113,6 +133,7 @@ export type FindingCode =
   | "unbound_policy"
   | "output_row_unresolvable"
   | "undeclared_join"
+  | "unmatched_reference"
   | "edge_not_expressible"
   | "channel_talks_to_itself"
   | "duplicate_label"

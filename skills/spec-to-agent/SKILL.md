@@ -48,7 +48,7 @@ that closely.
 
 1. **Read `spec.json`.** Read `compiled` in particular: `topo_order`,
    `loop_scopes`, `verdict_targets`, `joins`, `identity_merges`,
-   `fail_handlers`.
+   `propagations`, `fail_handlers`.
 2. **Read `RUNTIME_API.md`.** These are the only verbs your code may call.
 3. **Read `TEMPLATES.md`.** Map every node in `topo_order` to one template.
    Each `policy` maps by its `check.relation`, or by having an `impl`. If a node
@@ -83,6 +83,13 @@ These are verbatim constraints, not guidance.
   and say so. Do not compensate.
 - **`fail_handlers` may be empty.** When it is, emit no signal handlers and run
   straight to the output node. Do not invent a wait.
+- **`compiled.propagations` may be empty too.** When it is not, emit one
+  `state.propagate(from, to)` per entry, **after every policy and before the
+  output**. Use `from` and `to` exactly as the compiler wrote them: the edge
+  runs parent to child and verdicts travel the other way, and that inversion is
+  already resolved. Propagations are not nodes, so they never appear in
+  `topo_order` — they are the one thing you emit that the topo order does not
+  name.
 - **`policy_impl.py.j2` pastes `impl.body` verbatim** and calls
   `check(*values)`. Never paraphrase it, never re-indent it, never "clean it
   up". `verify_generated.py` compares it to the spec byte-for-byte and a

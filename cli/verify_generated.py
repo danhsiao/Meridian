@@ -80,7 +80,18 @@ def verify(path: Path, spec: Spec) -> list[str]:
         if node_id not in text:
             findings.append(f"topo_order names {node_id}, which the module never mentions")
 
-    # 5. every fail handler has a signal handler
+    # 5. every propagation the compiler resolved is actually emitted. A missing
+    #    one is silent: the parents simply stay unjudged, and every "how many
+    #    were clean" row returns zero on a board where nothing is wrong.
+    for prop in spec.compiled.get("propagations", []):
+        call = f'propagate("{prop["from"]}", "{prop["to"]}")'
+        if call not in text:
+            findings.append(
+                f"compiled.propagations names {prop['from']} -> {prop['to']}, "
+                f"which the module never propagates"
+            )
+
+    # 6. every fail handler has a signal handler
     for handler in spec.fail_handlers:
         signal = handler.get("signal", "")
         if signal and signal not in text:

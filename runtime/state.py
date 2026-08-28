@@ -102,6 +102,31 @@ class RunState:
             return self.passed(node_id)
         return self.records(node_id)
 
+    # ── propagation ──────────────────────────────────────────────────────
+    def propagate(self, child_id: str, parent_id: str) -> int:
+        """Carry child verdicts up a containment edge. Returns parents failed.
+
+        Writes a real verdict row for **every** parent on the edge, not only the
+        failing ones. That is not tidiness: a record with no verdict is not in
+        `judged`, and anything counting passes counts judged-and-not-failed. Omit
+        the True case and every parent whose children all passed stays unjudged,
+        so "how many were clean" comes back zero on a board where nothing is
+        wrong -- a silent, plausible, entirely wrong number.
+
+        Which edges propagate is `compiled.propagations`, resolved at freeze from
+        the operator's answer to `on_child_fail`. Nothing here decides it.
+        """
+        failed = 0
+        for parent in self.records(parent_id):
+            children = self.children(child_id, parent)
+            bad = [c for c in children if (v := self.verdict_of(child_id, c)) and not v.ok]
+            self.verdict(
+                "_propagated", parent_id, parent, not bad,
+                f"{len(bad)} of {len(children)} {child_id} failed" if bad else "",
+            )
+            failed += bool(bad)
+        return failed
+
     # ── reporting ────────────────────────────────────────────────────────
     def note(self, text: str) -> None:
         self._notes.append(text)

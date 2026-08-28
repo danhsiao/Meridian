@@ -79,6 +79,15 @@ export const nodeConditions: Record<string, NodeCondition> = {
   // `required_if_codes` renames the finding to `unresolved_policy` rather than
   // letting the freeze error imply a relation is mandatory.
   neither_resolved: (n) => !resolvedToRelation(n) && !resolvedToImpl(n),
+  /**
+   * Named by nothing in `required_if`, deliberately. The finding it drives
+   * carries an `add_edge` mutation, and the generic conditional-key path can
+   * only emit `set_config_key` — so it is a dedicated graph check, the same
+   * shape as `undeclared_join`. Declared here anyway so it stays a named,
+   * implemented, testable predicate rather than a lambda inside elaborate().
+   */
+  relation_is_exists_matching: (n, g) => existsMatchingWithoutJoin(n, g),
+
   // Reads span more than one artifact, so something must name which one takes
   // the failure — otherwise two different counts collapse into one.
   multiple_read_artifacts: (n) => {
@@ -130,7 +139,58 @@ export const edgeConditions: Record<string, EdgeCondition> = {
   endpoints_are_artifacts: (e, g) =>
     g.primitiveOf(e.from) === "artifact" && g.primitiveOf(e.to) === "artifact",
   rel_is_pairs_with: (e) => e.config?.rel === "pairs_with",
+  /**
+   * A containment edge has to say whether a verdict travels along it.
+   *
+   * Not a fifth primitive: containment already encodes parent-child, and this
+   * only says whether failure is inherited across that existing line. Without
+   * it the grammar cannot express "the parent fails when one of its children
+   * does" — `verdict_on` names a single target and nothing walks a containment
+   * edge upward — so a whole class of ordinary metric is unreachable on any
+   * board the system can draw.
+   */
+  rel_is_contains: (e) => e.config?.rel === "contains",
 };
+
+/**
+ * An `exists_matching` policy with nothing to match against.
+ *
+ * The relation looks a subject value up in a pool of candidate values, and what
+ * pairs the two sides is a `pairs_with` edge. Read two artifacts with no join
+ * between them and the policy compiles, runs, and compares values that were
+ * never related — every record fails, or worse, some pass by coincidence.
+ *
+ * The predicate is the whole condition rather than just "is the relation
+ * exists_matching", for the same reason `neither_resolved` is: a condition that
+ * names its own finding code IS the test, and the generic emptiness check is
+ * skipped for it. Named for the registry key it hangs off; documented here for
+ * what it actually decides.
+ */
+export function existsMatchingWithoutJoin(n: Node, g: Graph): boolean {
+  if (n.primitive !== "policy") return false;
+  const relation = (n.config?.check as { relation?: unknown } | undefined)?.relation;
+  if (relation !== "exists_matching") return false;
+
+  const reads = n.config?.reads;
+  if (!Array.isArray(reads)) return false;
+  const artifacts = [...new Set(reads.map((p) => splitPath(String(p)).node))];
+  if (artifacts.length < 2) return false;
+
+  // Any join between any two of the artifacts it reads is enough: the policy
+  // needs *a* pairing, not one per combination.
+  for (let i = 0; i < artifacts.length; i++) {
+    for (let j = i + 1; j < artifacts.length; j++) {
+      const joined = g.edges.some(
+        (e) =>
+          e.config?.rel === "pairs_with" &&
+          ((e.from === artifacts[i] && e.to === artifacts[j]) ||
+            (e.from === artifacts[j] && e.to === artifacts[i])),
+      );
+      if (joined) return false;
+    }
+  }
+  return true;
+}
 
 // ── option sources ──────────────────────────────────────────────────────
 // Computed BEFORE the model is called. The model relabels these into plain

@@ -7,6 +7,13 @@ These are the exact shapes to emit. They are not decoration: `verify_generated.p
 checks the properties they embody, so code that departs from them structurally will
 usually fail the lint. Fill `{{placeholders}}` from the spec; change nothing else.
 
+### Order of steps
+
+One step per `topo_order` entry, in order. Then, between the last policy and the
+output step, one `propagate` call per entry in `compiled.propagations` — those are
+not nodes, so they do not appear in `topo_order`, and they are the one thing you
+emit that the topo order does not name.
+
 ### `module` — The module shell
 
 Emit this once. `{{steps}}` is where the per-node steps go.
@@ -179,6 +186,17 @@ Two operands, both from `reads`.
         if _ok is None:
             _ok = bool(check(*_values))
         state.verdict("{{node_id}}", {{target}}, _record, _ok, "impl")
+```
+
+### `propagate` — one entry in `compiled.propagations`
+
+**Placement matters and is not negotiable: after every policy step, before the output step.** Propagation reads verdicts, so every check has to have run first. Emit one call per entry in `compiled.propagations`, using its `from` (the child) and `to` (the parent) exactly as written -- the edge runs parent to child, and verdicts travel the other way, which the compiler has already resolved for you.
+
+```python
+    # ── {{edge_id}} ({{from_id}} -> {{to_id}}, verdicts travel up) ───────
+    # Emitted after every policy and before the outputs: propagation reads
+    # verdicts, so every check has to have run first.
+    state.propagate("{{from_id}}", "{{to_id}}")
 ```
 
 ### `output` — output

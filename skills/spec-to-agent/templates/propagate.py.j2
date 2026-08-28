@@ -1,0 +1,5 @@
+    # ── {{edge_id}} ({{from_id}} -> {{to_id}}, verdicts travel up) ───────
+    # Emitted after every policy and before the outputs: propagation reads
+    # verdicts, so every check has to have run first.
+    state.propagate("{{from_id}}", "{{to_id}}")
+

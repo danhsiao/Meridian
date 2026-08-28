@@ -379,3 +379,155 @@ describe("severity and rank are different axes", () => {
     expect(found[0].code).toBe("missing_field");
   });
 });
+
+// ── the three checks that make an unproducible board fail to freeze ──────
+// Each of these let a spec through that compiled, ran, and produced nothing.
+
+describe("output_row_unresolvable: a row with no target", () => {
+  it("blocks when `of` is absent, not only when it is unresolvable", () => {
+    // The shape that got through: two rows, both `count`, neither naming what
+    // to count. The board froze clean and the run returned null for both.
+    const b = cleanBoard();
+    b.nodes[3].config.rows = [
+      { label: "how many we processed", fn: "count" },
+      { label: "how many succeeded and failed", fn: "count" },
+    ];
+    const blocking = blockingFindings(elaborate(b).findings);
+    expect(blocking.map((f) => f.code)).toEqual([
+      "output_row_unresolvable",
+      "output_row_unresolvable",
+    ]);
+  });
+
+  it("still blocks on a target that names nothing", () => {
+    const b = cleanBoard();
+    b.nodes[3].config.rows = [{ label: "n", fn: "count", of: "nope" }];
+    expect(codes(b)).toContain("output_row_unresolvable");
+  });
+
+  it("a row naming a real target is clean", () => {
+    expect(codes(cleanBoard())).toEqual([]);
+  });
+});
+
+describe("unmatched_reference: a lookup with nothing pairing the two sides", () => {
+  /** Two artifacts off one channel, one policy matching across them. */
+  function referenceBoard(): Board {
+    return {
+      nodes: [
+        node("c1", "channel", { tool: "composio.gmail", match: { subject: "x" } }),
+        node("a1", "artifact", { fields: ["f1"], source_hint: "the first one" }),
+        node("a2", "artifact", { fields: ["f1"], source_hint: "the second one" }),
+        node("p1", "policy", {
+          describes: "every a1 has an a2 with the same f1",
+          check: { relation: "exists_matching", params: { on: "f1" } },
+          reads: ["a1.f1", "a2.f1"],
+          verdict_on: "a1",
+          on_fail: "flag_and_continue",
+          on_absent: "fail",
+          confirmed_by: "c_01",
+        }),
+        node("o1", "output", { rows: [{ label: "n", fn: "count", of: "a1" }] }),
+      ],
+      edges: [
+        edge("e1", "c1", "a1", { cardinality: "many" }),
+        edge("e2", "c1", "a2", { cardinality: "many" }),
+        edge("e3", "a1", "p1"),
+        edge("e4", "a2", "p1"),
+        edge("e5", "p1", "o1"),
+      ],
+    };
+  }
+
+  it("blocks an exists_matching policy with no pairs_with edge between its reads", () => {
+    expect(codes(referenceBoard())).toContain("unmatched_reference");
+  });
+
+  it("clears once the join is drawn", () => {
+    const b = referenceBoard();
+    b.edges.push(edge("e6", "a1", "a2", { rel: "pairs_with", on: "f1" }));
+    expect(codes(b)).not.toContain("unmatched_reference");
+  });
+
+  it("proposes the edge, keyed on the field the two share", () => {
+    const f = elaborate(referenceBoard()).findings.find((x) => x.code === "unmatched_reference");
+    expect(f?.mutation).toMatchObject({
+      op: "add_edge",
+      edge: { from: "a1", to: "a2", config: { rel: "pairs_with", on: "f1" } },
+    });
+  });
+
+  it("does not fire on a relation that pairs nothing", () => {
+    const b = referenceBoard();
+    b.nodes[3].config.check = { relation: "equals" };
+    expect(codes(b)).not.toContain("unmatched_reference");
+  });
+
+  it("does not fire on a policy reading only one record", () => {
+    expect(codes(cleanBoard())).not.toContain("unmatched_reference");
+  });
+});
+
+describe("on_child_fail: whether a verdict travels up a containment edge", () => {
+  /** a1 contains a2; the policy judges a2. */
+  function nestedBoard(onChildFail?: string): Board {
+    return {
+      nodes: [
+        node("c1", "channel", { tool: "composio.gmail", match: { subject: "x" } }),
+        node("a1", "artifact", { fields: ["f1"] }),
+        node("a2", "artifact", { fields: ["f2"] }),
+        node("p1", "policy", {
+          describes: "f2 has to be filled in",
+          check: { relation: "present" },
+          reads: ["a2.f2"],
+          on_fail: "flag_and_continue",
+          on_absent: "fail",
+          confirmed_by: "c_01",
+        }),
+        node("o1", "output", { rows: [{ label: "n", fn: "count", of: "a1" }] }),
+      ],
+      edges: [
+        edge("e1", "c1", "a1", { cardinality: "many" }),
+        edge("e2", "a1", "a2", {
+          rel: "contains",
+          cardinality: "many",
+          ...(onChildFail ? { on_child_fail: onChildFail } : {}),
+        }),
+        edge("e3", "a2", "p1"),
+        edge("e4", "p1", "o1"),
+      ],
+    };
+  }
+
+  it("blocks a containment edge that has not answered it", () => {
+    const blocking = blockingFindings(elaborate(nestedBoard()).findings);
+    expect(blocking.map((f) => f.code)).toContain("missing_conditional_key");
+    expect(blocking.find((f) => f.code === "missing_conditional_key")?.evidence).toMatchObject({
+      key: "on_child_fail",
+      condition: "rel_is_contains",
+    });
+  });
+
+  it("clears on either answer", () => {
+    expect(codes(nestedBoard("ignore"))).toEqual([]);
+    expect(codes(nestedBoard("fail_parent"))).toEqual([]);
+  });
+
+  it("rejects a value outside the enum", () => {
+    expect(codes(nestedBoard("sometimes"))).toContain("invalid_enum_value");
+  });
+
+  it("compiles fail_parent into a propagation, and ignore into none", () => {
+    expect(elaborate(nestedBoard("fail_parent")).ir.propagations).toEqual([
+      { edge: "e2", from: "a2", to: "a1" },
+    ]);
+    expect(elaborate(nestedBoard("ignore")).ir.propagations).toEqual([]);
+  });
+
+  it("points the propagation from child to parent, not along the edge", () => {
+    // The edge runs parent -> child; verdicts travel the other way.
+    const p = elaborate(nestedBoard("fail_parent")).ir.propagations![0];
+    expect(p.from).toBe("a2");
+    expect(p.to).toBe("a1");
+  });
+});

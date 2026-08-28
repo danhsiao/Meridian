@@ -11,7 +11,8 @@
 
 import registryJson from "../registry.json" with { type: "json" };
 import {
-  askableConditions, askableEdgeConditions, edgeConditions, nodeConditions,
+  askableConditions, askableEdgeConditions, edgeConditions,
+  existsMatchingWithoutJoin, nodeConditions,
 } from "./conditions.js";
 import {
   Graph,
@@ -35,6 +36,7 @@ import type {
   Join,
   Node,
   NodeId,
+  Propagation,
   Rank,
   Registry,
   Severity,
@@ -132,6 +134,7 @@ export function elaborate(board: Board): ElaborateResult {
   checkEdgeKeys(ctx);
   const roles = resolveEdgeRoles(ctx);
   checkGraph(ctx);
+  checkReferenceJoins(ctx);
   checkPolicyReads(ctx);
 
   // Computed once. A cyclic board yields order === null, and every downstream
@@ -435,6 +438,42 @@ function checkGraph(ctx: Ctx): void {
   }
 }
 
+/**
+ * An `exists_matching` policy with nothing pairing its two sides.
+ *
+ * The relation looks a subject value up in a pool of candidates; a `pairs_with`
+ * edge is what says those two sets of records are related at all. Without one
+ * the policy still compiles and still runs — it just compares values that were
+ * never paired, so every record fails, or some pass by coincidence.
+ *
+ * Its own check rather than a `required_if` entry, because the fix is an edge
+ * and the generic conditional-key path can only emit `set_config_key`. Same
+ * shape as `undeclared_join`, which exists for the same reason.
+ */
+function checkReferenceJoins(ctx: Ctx): void {
+  const { g } = ctx;
+  for (const p of g.byPrimitive("policy")) {
+    if (!existsMatchingWithoutJoin(p, g)) continue;
+
+    const reads = Array.isArray(p.config.reads) ? p.config.reads : [];
+    const artifacts = unique(reads.map((r) => splitPath(String(r)).node)).filter((id) =>
+      g.primitiveOf(id) === "artifact",
+    );
+    if (artifacts.length < 2) continue;
+    const [left, right] = artifacts;
+
+    // The join key is the field the two share. Where they share none, the
+    // option set is empty and render() throws EmptyOptionSet rather than
+    // showing a blank dropdown — the real gap is a `missing_field` on one of
+    // the parents, which checkPolicyReads already raises.
+    const shared = fieldsOf(g.node(left)).filter((f) => fieldsOf(g.node(right)).includes(f));
+    emit(ctx, "unmatched_reference", "blocking", { node_id: p.id },
+      { left, right, shared },
+      { op: "add_edge", edge: { id: `e_${left}_${right}`, from: left, to: right,
+                                config: { rel: "pairs_with", on: shared[0] ?? null } } });
+  }
+}
+
 function findCycleNode(nodes: Node[], edges: Edge[]): NodeId | null {
   const order = new Set(topoSort(nodes, edges) ?? []);
   return nodes.find((n) => !order.has(n.id))?.id ?? null;
@@ -478,7 +517,24 @@ function checkOutputRows(ctx: Ctx, dag: DataDag): void {
     if (!Array.isArray(rows)) continue;
     for (const row of rows as Record<string, unknown>[]) {
       const of = row.of == null ? null : String(row.of);
-      if (!of) continue;
+      /**
+       * A count with no target is a label, not a metric.
+       *
+       * This fired on absence for the first time after a board froze cleanly
+       * with two rows reading `{ fn: "count", label: "How many we processed" }`
+       * and produced `null` for both at run time. The check only ever tested
+       * whether a PRESENT `of` resolved, so an absent one skipped every branch
+       * below and the board shipped unable to produce a single number.
+       *
+       * The option set is real — every artifact on the board and every field on
+       * one — so this is a question she can answer, not a status.
+       */
+      if (!of) {
+        emit(ctx, "output_row_unresolvable", "blocking", { node_id: o.id },
+          { row: row.label, reason: "no target", of: null },
+          { op: "add_output_row", node_id: o.id, row });
+        continue;
+      }
       const { node, field } = splitPath(of);
       const target = ctx.g.node(node);
       if (!target) {
@@ -626,6 +682,18 @@ function buildIR(ctx: Ctx, roles: Record<string, EdgeRole>, dag: DataDag): Parti
     if (typeof on === "string") joins.push({ edge: e.id, left: e.from, right: e.to, on });
   }
   ir.joins = joins;
+
+  /**
+   * Containment edges a verdict travels along. Codegen walks these after every
+   * policy has run — propagation reads verdicts, so it cannot run earlier.
+   */
+  const propagations: Propagation[] = [];
+  for (const e of g.edges) {
+    if (roles[e.id] !== "contain") continue;
+    if (e.config.on_child_fail !== "fail_parent") continue;
+    propagations.push({ edge: e.id, from: e.to, to: e.from });
+  }
+  ir.propagations = propagations;
 
   ir.fail_handlers = g.failEdges().map((e): FailHandler => {
     const awaitCfg = e.config.await as { channel?: string; correlate_on?: string } | undefined;

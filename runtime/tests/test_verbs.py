@@ -194,3 +194,65 @@ def test_record_ids_are_content_addressed():
     b = record_id_for("a2", {"f1": "X"}, None, 0)
     c = record_id_for("a2", {"f1": "Y"}, None, 0)
     assert a == b and a != c
+
+
+# ── propagation ──────────────────────────────────────────────────────────
+def _family(child_ok: list[bool]):
+    """One parent with N children, each judged as given."""
+    state = RunState()
+    parent = state.add("a2", [record("a2", {"f1": "P"})])[0]
+    for i, ok in enumerate(child_ok):
+        child = state.add("a4", [record("a4", {"f3": str(i)}, parent_id=parent.record_id, ordinal=i)])[0]
+        state.verdict("p1", "a4", child, ok)
+    return state, parent
+
+
+def test_propagation_fails_a_parent_whose_child_failed():
+    state, parent = _family([True, False, True])
+    assert state.propagate("a4", "a2") == 1
+    assert state.verdict_of("a2", parent).ok is False
+    assert state.failed("a2") == [parent]
+
+
+def test_propagation_judges_a_clean_parent_rather_than_leaving_it_unjudged():
+    """The True case is the whole reason this is a verb and not a filter.
+
+    Anything counting passes counts judged-and-not-failed. Without a verdict row
+    for a parent whose children all passed, "how many were clean" returns zero
+    on a board where nothing is wrong -- silent, plausible and entirely wrong.
+    """
+    state, parent = _family([True, True])
+    assert state.propagate("a4", "a2") == 0
+    assert state.verdict_of("a2", parent) is not None
+    assert state.passed("a2") == [parent]
+    assert state.judged("a2") == [parent]
+
+
+def test_propagation_is_scoped_to_each_parents_own_children():
+    state = RunState()
+    good = state.add("a2", [record("a2", {"f1": "A"}, ordinal=0)])[0]
+    bad = state.add("a2", [record("a2", {"f1": "B"}, ordinal=1)])[0]
+    ok_child = state.add("a4", [record("a4", {"f3": "1"}, parent_id=good.record_id)])[0]
+    bad_child = state.add("a4", [record("a4", {"f3": "2"}, parent_id=bad.record_id)])[0]
+    state.verdict("p1", "a4", ok_child, True)
+    state.verdict("p1", "a4", bad_child, False)
+
+    state.propagate("a4", "a2")
+    assert state.verdict_of("a2", good).ok is True
+    assert state.verdict_of("a2", bad).ok is False
+
+
+def test_a_parent_with_no_children_is_judged_as_clean():
+    """Vacuously true, and it must still be judged, for the same counting reason."""
+    state = RunState()
+    parent = state.add("a2", [record("a2", {"f1": "P"})])[0]
+    assert state.propagate("a4", "a2") == 0
+    assert state.verdict_of("a2", parent).ok is True
+
+
+def test_propagation_never_revives_a_parent_that_already_failed():
+    """A policy landing directly on the parent still stands: one failure is enough."""
+    state, parent = _family([True, True])
+    state.verdict("p2", "a2", parent, False, "failed its own check")
+    state.propagate("a4", "a2")
+    assert state.verdict_of("a2", parent).ok is False

@@ -210,7 +210,7 @@ export function render(finding: Finding, board: Board): Rendered {
     anchor: finding.anchor,
     binding,
     answer_kind: ANSWER_KIND[binding],
-    body: bodyFor(finding, ask, label, key!, "edge_id" in finding.anchor),
+    body: bodyFor(finding, ask, label, key!, "edge_id" in finding.anchor, subject, g),
     preview: previewOf(finding.mutation, g),
     options,
     mutation: finding.mutation,
@@ -265,6 +265,7 @@ function computeOptions(
 
 function bodyFor(
   finding: Finding, ask: AskSpec, label: string | undefined, key: string, isEdge: boolean,
+  subject?: Node | Edge, g?: Graph,
 ): string {
   // A node label is something she typed, so it takes quotes. An edge name is
   // one we made up out of its two endpoints, so it doesn't.
@@ -272,18 +273,25 @@ function bodyFor(
 
   // Wording that explains WHY she is being asked beats wording that only says
   // what is wanted, so a fired condition wins over the key's generic intent.
+  // An edge question that names neither end is ambiguous in both directions, so
+  // {from}/{to} are substituted in the BODY as well as in the option labels.
+  // They were substituted only in labels until the jargon sweep rendered a body
+  // reading "Each {from} contains {to}" — placeholders, shown to a human.
+  const named = (text: string) => (g ? endpointNames(text, subject, g) : text);
+
   const condition = finding.evidence.condition as string | undefined;
   if (condition && CONDITION_WORDING[condition]) {
-    return CONDITION_WORDING[condition](it);
+    return named(CONDITION_WORDING[condition](it));
   }
 
   // `intent` is a question template. {it} is the thing she named, so the
   // registry controls the whole sentence rather than contributing a fragment
   // that render() then has to staple a question mark onto.
   if (ask.intent) {
-    const q = ask.intent.includes("{it}")
-      ? ask.intent.replaceAll("{it}", it)
-      : `${it} — ${ask.intent}`;
+    const intent = named(ask.intent);
+    const q = intent.includes("{it}")
+      ? intent.replaceAll("{it}", it)
+      : `${it} — ${intent}`;
     return /[?.!]$/.test(q) ? q : `${q}?`;
   }
 
@@ -311,6 +319,10 @@ const CONDITION_WORDING: Record<string, (it: string) => string> = {
   has_inputs: (it) => `What gets sent through ${it}, and what goes in it?`,
   endpoints_are_artifacts: () => `How do these two relate — does one sit inside the other, do they pair up, or is one built from several?`,
   rel_is_pairs_with: () => `These two pair up. Which value connects them?`,
+  // Both endpoints named. "Does the parent fail too?" names neither end, and on
+  // a line between two cards that is ambiguous in both directions.
+  rel_is_contains: () =>
+    `Each {from} contains {to}. If a {to} fails a check, does the {from} fail too?`,
   holds_no_child_records: (it) =>
     `What values do you pull out of ${it}?`,
 };
@@ -359,7 +371,21 @@ function withoutAsk(finding: Finding, label: string | undefined, g: Graph): Rend
     output_row_unresolvable: {
       body: `The result “${ev.row}” can't be worked out — ${humanReason(String(ev.reason))}.`,
       binding: "control",
-      options: [{ value: "remove", label: "Remove that result" }],
+      options:
+        ev.reason === "no target"
+          ? [
+              ...optionSources.resolvable_row_targets({} as never, g, "of"),
+              { value: "remove", label: "Remove that result" },
+            ]
+          : [{ value: "remove", label: "Remove that result" }],
+    },
+    unmatched_reference: {
+      body: `${it} looks up a value from ${name(ev.right)} against ${name(ev.left)}, but nothing says which ones go together. What connects them?`,
+      binding: "control",
+      options: [
+        { value: "confirm", label: "Match them up" },
+        { value: "reject", label: "No — they aren't related", rejects: true },
+      ],
     },
     reads_unbound: {
       body: `${it} refers to ${name(ev.node)}, but nothing connects them yet. Should it?`,
@@ -429,6 +455,9 @@ function humanReason(reason: string): string {
   if (reason === "copy across a many edge") return "there's more than one of them, so there's no single value to show";
   if (reason === "unknown node") return "it points at something that isn't on the board";
   if (reason === "unknown field") return "it points at a value that doesn't exist";
+  // A count with no target is a label, not a number. The option set is real —
+  // every record on the board and every value on one — so this is answerable.
+  if (reason === "no target") return "it doesn't say what to count";
   return reason;
 }
 
