@@ -23,14 +23,27 @@ the one that demonstrates durable execution.
 
 ## Shells
 
-Four, and only the first is needed for the whole demo.
+Shell 1 (Canvas & DB): Run supabase start, npm run env:local, npm run db:seed:examples, and npm run dev (UI is at localhost:3000).
+Shell 2 (Review Agent): Run npm run worker.
+Shell 3 (Codegen & Eval CLI): Run the sequence to pull the spec 
+./cli.sh specs 
+cli pull  --spec <hash>
+cli fetch --process <id> --live --query '<gmail query>'   # once, seeds queries.json
+cli gen   --process <id>
+cli run   --process <id>                 fina                  # ✓ live, new emails included
+# eval/heal only after you write expected/results.json + expected/adapter.py
 
+If you want to run the cli commands against the whiteboard I made:
+
+```bash
+./cli.sh specs
+./cli.sh pull –spec cce7715b
+./cli.sh gen –process demoboard
+./cli.sh eval –process demoboard
 ```
-Shell 1   the demo itself — every cli command below
-Shell 2   temporal server start-dev          (only for `cli run`)
-Shell 3   python -m runtime.worker           (only for `cli run`)
-Shell 4   npm run worker                     (only for the canvas / review half)
-```
+
+Shell 4 (Temporal Server): Run temporal server start-dev --ui-port 8233.
+Shell 5 (Temporal Worker): Run .venv/bin/python -u -m runtime.worker. Once it's listening, use Shell 3 to run the agent (./cli.sh run --process demoboard) and watch it execute at localhost:8233. When you're done, tear it down with supabase stop and kill the Temporal processes.
 
 ---
 
