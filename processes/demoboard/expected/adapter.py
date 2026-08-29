@@ -1,9 +1,8 @@
 """The label adapter for `demoboard` -- the one file that knows this suite's
 format AND this board's vocabulary.
 
-Sibling of `processes/final_test/expected/adapter.py`. The label file is
-byte-identical; what differs is the metric table below, because the board was
-redrawn again and the node ids moved again.
+One of these per process. The label file is shared across boards; what differs
+is the metric table below, because a redrawn board moves its node ids.
 
 **All seven metrics are scored on this board.** Two of them are only scoreable
 because of a propagation, which is worth spelling out:

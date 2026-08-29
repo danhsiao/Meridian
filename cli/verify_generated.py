@@ -25,6 +25,7 @@ from runtime.spec import Spec
 #: generated code *defining* one has reimplemented a verb.
 RUNTIME_VERBS = set(RELATIONS) | set(FUNCTIONS) | set(EXPORTS) | {
     "extract", "scope_hint", "on_absent", "subsumes_guard", "rows", "verdict",
+    "inbound", "outbound",
 }
 
 ALLOWED_IMPORT_ROOTS = {"runtime", "__future__", "typing", "json", "datetime", "re", "pathlib"}
@@ -98,6 +99,24 @@ def verify(path: Path, spec: Spec) -> list[str]:
             findings.append(
                 f"compiled.propagations names {prop['from']} -> {prop['to']}, "
                 f"which the module never propagates"
+            )
+
+    # 5b. every channel node actually reaches its transport.
+    #
+    #     Checked because the failure it catches was live for the whole build and
+    #     looked like nothing: a channel node emitted a *comment*, the payloads
+    #     having been pre-fetched by the CLI, and a generated agent therefore had
+    #     no integration in it at all. Rule 4 above passed the whole time, because
+    #     a node id inside a comment is still a node id inside the text. Assert
+    #     the call, not the mention.
+    for node_id in spec.of_primitive("channel"):
+        inbound_node = spec.config(node_id).get("match") is not None
+        verb = "inbound" if inbound_node else "outbound"
+        if f'channels.{verb}(spec, "{node_id}"' not in text:
+            findings.append(
+                f"{node_id} is a{'n inbound' if inbound_node else 'n outbound'} channel, "
+                f"which the module never calls channels.{verb}() for. A channel node "
+                f"emits the call that reaches its transport, not a comment."
             )
 
     # 6. every fail handler has a signal handler

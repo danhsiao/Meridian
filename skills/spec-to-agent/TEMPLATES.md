@@ -37,12 +37,16 @@ This module is orchestration: one step per entry in `compiled.topo_order`, in
 order, calling verbs that live in `runtime/`. It defines no logic of its own --
 `cli/verify_generated.py` asserts that any function it does define is
 byte-identical to an `impl.body` in the spec.
+
+`payloads` is an override, not the source. Pass None -- as `cli run` does -- and
+the channel node connects through its own `tool` and fetches. `cli eval` passes
+one labelled case's payloads so the suite can score a case at a time.
 """
 from __future__ import annotations
 
 from typing import Any
 
-from runtime import outputs, relations
+from runtime import channels, outputs, relations
 from runtime.extract import extract, scope_hint
 from runtime.guards import on_absent, subsumes_guard
 from runtime.identity import merge_by_identity_key
@@ -54,27 +58,54 @@ from runtime.state import RunState
 {{assumptions}}
 
 
-def run(payloads: list[dict[str, Any]], spec_path: str) -> dict[str, Any]:
+def run(payloads: list[dict[str, Any]] | None = None, spec_path: str = "") -> dict[str, Any]:
     spec = Spec.load(spec_path)
     state = RunState()
-    items = [Payload.from_dict(p) if isinstance(p, dict) else p for p in payloads]
-    payload_of = {p.id: p for p in items}
+    items: list[Payload] = []
+    payload_of: dict[str, Payload] = {}
 
 {{steps}}
     return {
-        "outputs": outputs.rows(state, spec.config(OUTPUT_NODE).get("rows", [])),
+        "outputs": _outputs,
         "extracted_state": state.extracted(),
     }
 ```
 
-### `channel` — channel
+Note that `items` and `payload_of` start **empty**. They are filled by the
+channel step, not by the module shell. A channel node is a node, and the code
+that reaches its transport belongs at its position in `topo_order` like every
+other node's code.
 
-A channel node emits no code -- payloads arrive already fetched.
+### `channel` — inbound channel
+
+Use when the node's config carries a `match`: it reads.
 
 ```python
-    # ── {{node_id}} (channel, tool={{tool}}) ─────────────────────────────
-    # Payloads arrive already fetched: the caller decides live or replay, so the
-    # same agent serves a demo run and a deterministic eval.
+    # ── {{node_id}} (channel in, tool={{tool}}) ──────────────────────────
+    # The integration lives here, in the agent, because the board drew this node
+    # and `topo_order` names it. `given=payloads` is the eval harness's override
+    # -- one labelled case's payloads -- and is None on a live run, where the
+    # agent resolves {{tool}} from the spec and fetches for itself.
+    items += channels.inbound(spec, "{{node_id}}", given=payloads)
+    payload_of.update({p.id: p for p in items})
+```
+
+`channels.inbound` resolves `{{tool}}` through the runtime's dispatch table. Never
+name a provider in generated code and never branch on which one it is — a board
+carrying `http.get` emits this same line.
+
+### `channel_out` — outbound channel
+
+Use when the node's config carries **no** `match`: it delivers. It sends the
+rows bound by the output node, so it is always emitted after one.
+
+```python
+    # ── {{node_id}} (channel out, tool={{tool}}) ─────────────────────────
+    # An outbound channel has no `match`: it delivers rather than reads. Whether
+    # it leaves the machine is the run's decision, not the board's -- `outbound`
+    # captures to disk unless CHANNEL_MODE is live -- so emit the call
+    # unconditionally and never branch on the mode here.
+    channels.outbound(spec, "{{node_id}}", _outputs)
 ```
 
 ### `artifact_from_payload` — artifact, extracted from the payload
@@ -221,9 +252,11 @@ Two operands, both from `reads`.
 
 ### `output` — output
 
-Records the node id; `outputs.rows` does the work in the module shell.
+Renders the rows and binds them to `_outputs`.
 
 ```python
     # ── {{node_id}} (output) ─────────────────────────────────────────────
-    OUTPUT_NODE = "{{node_id}}"
+    # Bound to a name rather than computed in the return, because an outbound
+    # channel later in `topo_order` sends exactly these rows.
+    _outputs = outputs.rows(state, spec.config("{{node_id}}").get("rows", []))
 ```

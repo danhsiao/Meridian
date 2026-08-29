@@ -10,14 +10,19 @@ This module is orchestration: one step per entry in `compiled.topo_order`, in
 order, calling verbs that live in `runtime/`. It defines no logic of its own --
 `cli/verify_generated.py` asserts that any function it does define is
 byte-identical to an `impl.body` in the spec.
+
+`payloads` is an override, not the source. Pass None -- as `cli run` does -- and
+the channel node connects through its own `tool` and fetches. `cli eval` passes
+one labelled case's payloads so the suite can score a case at a time.
 """
 from __future__ import annotations
 
 from typing import Any
 
-from runtime import outputs, relations
+from runtime import channels, outputs, relations
 from runtime.extract import extract, scope_hint
 from runtime.guards import on_absent, subsumes_guard
+from runtime.identity import merge_by_identity_key
 from runtime.helpers import squash
 from runtime.payload import Payload
 from runtime.spec import Spec
@@ -26,15 +31,19 @@ from runtime.state import RunState
 
 
 
-def run(payloads: list[dict[str, Any]], spec_path: str) -> dict[str, Any]:
+def run(payloads: list[dict[str, Any]] | None = None, spec_path: str = "") -> dict[str, Any]:
     spec = Spec.load(spec_path)
     state = RunState()
-    items = [Payload.from_dict(p) if isinstance(p, dict) else p for p in payloads]
-    payload_of = {p.id: p for p in items}
+    items: list[Payload] = []
+    payload_of: dict[str, Payload] = {}
 
-    # ── cha_3 (channel, tool=composio.gmail) ─────────────────────────────
-    # Payloads arrive already fetched: the caller decides live or replay, so the
-    # same agent serves a demo run and a deterministic eval.
+    # ── cha_3 (channel in, tool=composio.gmail) ──────────────────────────
+    # The integration lives here, in the agent, because the board drew this node
+    # and `topo_order` names it. `given=payloads` is the eval harness's override
+    # -- one labelled case's payloads -- and is None on a live run, where the
+    # agent resolves composio.gmail from the spec and fetches for itself.
+    items += channels.inbound(spec, "cha_3", given=payloads)
+    payload_of.update({p.id: p for p in items})
 
     # ── art_1 (artifact, from the payload) ─────────────────────────
     _config = spec.config("art_1")
@@ -84,13 +93,17 @@ def run(payloads: list[dict[str, Any]], spec_path: str) -> dict[str, Any]:
         state.verdict("pol_1", "art_2", _record, _ok, "equals")
 
     # ── out_1 (output) ─────────────────────────────────────────────
-    OUTPUT_NODE = "out_1"
+    # Bound to a name rather than computed in the return, because an outbound
+    # channel later in `topo_order` sends exactly these rows.
+    _outputs = outputs.rows(state, spec.config("out_1").get("rows", []))
 
-    # ── cha_2 (channel, tool=composio.gmail) ─────────────────────────────
-    # Payloads arrive already fetched: the caller decides live or replay, so the
-    # same agent serves a demo run and a deterministic eval.
-
+    # ── cha_2 (channel out, tool=composio.gmail) ─────────────────────────
+    # An outbound channel has no `match`: it delivers rather than reads. Whether
+    # it leaves the machine is the run's decision, not the board's -- `outbound`
+    # captures to disk unless CHANNEL_MODE is live -- so emit the call
+    # unconditionally and never branch on the mode here.
+    channels.outbound(spec, "cha_2", _outputs)
     return {
-        "outputs": outputs.rows(state, spec.config(OUTPUT_NODE).get("rows", [])),
+        "outputs": _outputs,
         "extracted_state": state.extracted(),
     }

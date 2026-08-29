@@ -24,7 +24,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--live", action="store_true", help="required: this reaches a real transport")
     p.add_argument(
         "--query",
-        help="override the board's match for this snapshot only; never written to the spec",
+        help="override the board's match; remembered in queries.json for later "
+        "automatic refreshes, never written to the spec",
     )
 
     p = sub.add_parser("gen", help="generate an agent from a frozen spec")
@@ -36,10 +37,20 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--agent", default="agent", help="module directory under processes/<id>/")
     p.add_argument("--offline", action="store_true", help="fail rather than call the model")
     p.add_argument("--only", help="score one fixture only, by label key")
+    p.add_argument(
+        "--replay",
+        action="store_true",
+        help="score the last snapshot instead of re-fetching; what the heal loop wants",
+    )
 
     p = sub.add_parser("run", help="run a process through the Temporal worker")
     p.add_argument("--process", required=True)
     p.add_argument("--live", action="store_true", help="deliver outbound sends for real")
+    p.add_argument(
+        "--replay",
+        action="store_true",
+        help="run over the last snapshot instead of re-fetching the inbound channel",
+    )
 
     args = parser.parse_args(argv)
 
@@ -70,12 +81,18 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "eval":
         from .evaluate import run_eval
 
-        return run_eval(args.process, agent=args.agent, offline=args.offline, only=args.only)
+        return run_eval(
+            args.process,
+            agent=args.agent,
+            offline=args.offline,
+            only=args.only,
+            replay=args.replay,
+        )
 
     if args.command == "run":
         from .run import run_process
 
-        return run_process(args.process, live=args.live)
+        return run_process(args.process, live=args.live, replay=args.replay)
 
     return 1
 

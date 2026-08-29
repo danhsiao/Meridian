@@ -38,11 +38,13 @@ and why the constraints below are absolute rather than stylistic.
 see the intended structure rather than inventing one. Fill their placeholders
 from the spec and change nothing else about their structure.
 
-**A hand-written reference agent exists** at `processes/<id>/reference/agent.py`
-for at least one process, and generated output is diffed against it. That diff
-has already caught one real bug — a template chosen on whether a parent *exists*
-rather than on whether the parent *has fields*. Assume your output will be read
-that closely.
+**Your output is read closely.** `verify_generated.py` lints it on every run,
+and a human diffs two processes' agents against each other to check that the
+same board shape produced the same code. A hand-written reference agent used to
+sit at `processes/<id>/reference/agent.py` and that diff caught one real bug — a
+template chosen on whether a parent *exists* rather than on whether the parent
+*has fields*. No process carries a reference today; `cli gen` still diffs
+against one if it finds it.
 
 ## Steps
 
@@ -66,6 +68,11 @@ These are verbatim constraints, not guidance.
 
 - **One step per `topo_order` entry, in order.** Never reorder, never infer a
   dependency, never skip a node.
+- **A `channel` node emits the call that reaches its transport.** Inbound when
+  its config carries a `match`, outbound when it does not. It is a node like any
+  other and a comment is not a step — `verify_generated.py` asserts the call.
+  Resolve nothing yourself: `channels.inbound`/`channels.outbound` take the node
+  id and read `tool` from the spec, so generated code never names a provider.
 - **Look up the template from `compiled.templates[node_id]` when the spec
   carries it; otherwise from the node's `primitive` and its enum value
   (`check.relation`, `output.fn`).** `registry_version` 1.0 specs do not emit
@@ -124,13 +131,15 @@ with `p1.check.relation = "present"` over `reads: ["a2.f1", "a2.f2"]`, the
 emitted module is five steps in `topo_order` order:
 
 ```python
-def run(payloads, spec_path):
+def run(payloads=None, spec_path=""):
     spec = Spec.load(spec_path)
     state = RunState()
-    items = [Payload.from_dict(p) for p in payloads]
-    payload_of = {p.id: p for p in items}
+    items: list[Payload] = []
+    payload_of: dict[str, Payload] = {}
 
-    # ── c1 (channel) ── payloads arrive already fetched
+    # ── c1 (channel in) ── the agent reaches its own transport
+    items += channels.inbound(spec, "c1", given=payloads)
+    payload_of.update({p.id: p for p in items})
 
     # ── a1 (artifact, from the payload) ──
     ...state.add("a1", extract(_item, node_id="a1", ...))

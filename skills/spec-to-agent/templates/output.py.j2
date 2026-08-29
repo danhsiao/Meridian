@@ -1,3 +1,4 @@
     # ── {{node_id}} (output) ─────────────────────────────────────────────
-    OUTPUT_NODE = "{{node_id}}"
-
+    # Bound to a name rather than computed in the return, because an outbound
+    # channel later in `topo_order` sends exactly these rows.
+    _outputs = outputs.rows(state, spec.config("{{node_id}}").get("rows", []))

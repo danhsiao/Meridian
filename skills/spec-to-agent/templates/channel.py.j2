@@ -1,4 +1,7 @@
-    # ── {{node_id}} (channel, tool={{tool}}) ─────────────────────────────
-    # Payloads arrive already fetched: the caller decides live or replay, so the
-    # same agent serves a demo run and a deterministic eval.
-
+    # ── {{node_id}} (channel in, tool={{tool}}) ──────────────────────────
+    # The integration lives here, in the agent, because the board drew this node
+    # and `topo_order` names it. `given=payloads` is the eval harness's override
+    # -- one labelled case's payloads -- and is None on a live run, where the
+    # agent resolves {{tool}} from the spec and fetches for itself.
+    items += channels.inbound(spec, "{{node_id}}", given=payloads)
+    payload_of.update({p.id: p for p in items})

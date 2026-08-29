@@ -13,15 +13,30 @@ from typing import Any
 
 
 class Spec:
-    def __init__(self, data: dict[str, Any]) -> None:
+    def __init__(self, data: dict[str, Any], path: str | Path | None = None) -> None:
         self.data = data
+        self.path = Path(path) if path else None
         self.nodes: dict[str, dict[str, Any]] = {n["id"]: n for n in data.get("nodes", [])}
         self.edges: dict[str, dict[str, Any]] = {e["id"]: e for e in data.get("edges", [])}
         self.compiled: dict[str, Any] = data.get("compiled", {})
 
     @staticmethod
     def load(path: str | Path) -> "Spec":
-        return Spec(json.loads(Path(path).read_text()))
+        return Spec(json.loads(Path(path).read_text()), path=path)
+
+    def sidecar(self, name: str) -> dict[str, Any]:
+        """A JSON file beside the spec, or `{}`.
+
+        Operational notes that are emphatically *not* part of the frozen spec:
+        reading one never touches `data`, so `spec_hash` still identifies the
+        board exactly. `queries.json` is the one that exists -- the provider
+        query an operator found actually works, where the board's `match` is
+        prose that does not.
+        """
+        if self.path is None:
+            return {}
+        path = self.path.parent / name
+        return json.loads(path.read_text()) if path.exists() else {}
 
     # ── identity ─────────────────────────────────────────────────────────
     @property

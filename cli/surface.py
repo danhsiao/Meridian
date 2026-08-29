@@ -18,11 +18,19 @@ RUNTIME = Path(__file__).resolve().parents[1] / "runtime"
 
 #: The modules generated code is allowed to call into, in the order a reader
 #: needs them.
+#:
+#: `channels/verbs.py` belongs here and its absence was a bug with a visible
+#: symptom. This list *is* the model's world: the skill is told these are the
+#: only verbs it may call, and the lint enforces it. Leaving channels out meant
+#: the codegen agent could not have emitted the integration if it had wanted to,
+#: and the comment it emitted at every channel node was the shape of that
+#: blindness rather than a decision anybody made.
 MODULES = [
     "spec.py",
     "state.py",
     "payload.py",
     "extract.py",
+    "channels/verbs.py",
     "relations.py",
     "guards.py",
     "outputs.py",
@@ -42,7 +50,7 @@ def _signature(node: ast.FunctionDef) -> str:
 
 def module_surface(path: Path) -> str:
     tree = ast.parse(path.read_text())
-    lines = [f"### `runtime/{path.name}`", ""]
+    lines = [f"### `runtime/{path.relative_to(RUNTIME)}`", ""]
     header = ast.get_docstring(tree)
     if header:
         lines += [header.strip().split("\n\n")[0], ""]

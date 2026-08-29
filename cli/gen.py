@@ -18,7 +18,7 @@ The skill runs in a scratch directory containing exactly three files:
 
     spec.json        the frozen spec
     RUNTIME_API.md   signatures and one-line docs, generated from the modules
-    TEMPLATES.md     the nine shapes, with synthetic examples only
+    TEMPLATES.md     the twelve shapes, with synthetic examples only
 
 Not the README. Not the design document. Not the conversation that produced the
 board. Not the process's own fixtures or expected results. If the skill needs

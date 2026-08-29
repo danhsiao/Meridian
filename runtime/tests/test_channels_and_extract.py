@@ -8,6 +8,8 @@ from runtime.channels.base import Channel, Sent
 from runtime.channels.capture import CaptureChannel
 from runtime.channels.composio import _query, part_text
 from runtime.channels.replay import ReplayChannel
+from runtime.channels import verbs
+from runtime.spec import Spec
 from runtime.extract import build_prompt, extract
 from runtime.payload import Part, Payload
 
@@ -126,3 +128,69 @@ def test_a_missing_field_arrives_as_none_rather_than_absent(monkeypatch):
     monkeypatch.setattr("runtime.extract.call_model", lambda prompt: [{"f1": "A"}])
     records = extract(Payload(id="m1"), node_id="a2", label="Part", fields=["f1", "f2"])
     assert records[0].fields == {"f1": "A", "f2": None}
+
+
+# ── the channel verbs generated code calls ───────────────────────────────────
+
+
+def _spec_with_channel(tmp_path, config, node_id="c1"):
+    path = tmp_path / "spec.json"
+    path.write_text(
+        json.dumps(
+            {
+                "process_id": "t",
+                "spec_hash": "sha256:0",
+                "nodes": [{"id": node_id, "primitive": "channel", "config": config}],
+                "edges": [],
+                "compiled": {"topo_order": [node_id]},
+            }
+        )
+    )
+    return Spec.load(path)
+
+
+def test_given_payloads_short_circuit_the_fetch(tmp_path, monkeypatch):
+    """The eval harness's override: hand payloads in, nothing is resolved."""
+    spec = _spec_with_channel(tmp_path, {"tool": "composio.gmail", "match": "q"})
+    monkeypatch.setattr(
+        registry, "resolve", lambda tool: pytest.fail("resolved a transport despite `given`")
+    )
+    items = verbs.inbound(spec, "c1", given=[Payload(id="m1", text="hi").to_dict()])
+    assert [p.id for p in items] == ["m1"]
+
+
+def test_without_given_the_agent_fetches_through_the_registry(tmp_path, monkeypatch):
+    spec = _spec_with_channel(tmp_path, {"tool": "composio.gmail", "match": "board prose"})
+    monkeypatch.setattr(registry, "resolve", lambda tool: FakeChannel())
+    assert verbs.inbound(spec, "c1")[0].text == "board prose"
+
+
+def test_a_queries_sidecar_overrides_the_boards_prose_match(tmp_path, monkeypatch):
+    """`match` is prose an operator wrote; a provider needs a query."""
+    spec = _spec_with_channel(tmp_path, {"tool": "composio.gmail", "match": "board prose"})
+    (tmp_path / "queries.json").write_text(json.dumps({"c1": "has:attachment"}))
+    monkeypatch.setattr(registry, "resolve", lambda tool: FakeChannel())
+    assert verbs.inbound(spec, "c1")[0].text == "has:attachment"
+    assert spec.config("c1")["match"] == "board prose"  # the spec is untouched
+
+
+def test_outbound_captures_unless_the_mode_is_live(tmp_path, monkeypatch):
+    spec = _spec_with_channel(tmp_path, {"tool": "composio.gmail"})
+    inner = FakeChannel()
+    monkeypatch.setattr(registry, "resolve", lambda tool: inner)
+    monkeypatch.setenv("CHANNEL_MODE", "capture")
+    monkeypatch.setenv("CHANNEL_CAPTURE_DIR", str(tmp_path / "captured"))
+    assert verbs.outbound(spec, "c1", [{"label": "row"}]).delivered is False
+    assert inner.sent == []  # nothing reached the adapter
+
+    monkeypatch.setenv("CHANNEL_MODE", "live")
+    assert verbs.outbound(spec, "c1", [{"label": "row"}]).delivered is True
+    assert inner.sent[0]["body"] == [{"label": "row"}]
+
+
+def test_outbound_never_invents_a_recipient_the_board_did_not_give(tmp_path, monkeypatch):
+    spec = _spec_with_channel(tmp_path, {"tool": "composio.gmail", "describes": "email daniel"})
+    monkeypatch.setattr(registry, "resolve", lambda tool: FakeChannel())
+    monkeypatch.setenv("CHANNEL_MODE", "capture")
+    monkeypatch.setenv("CHANNEL_CAPTURE_DIR", str(tmp_path / "captured"))
+    assert verbs.outbound(spec, "c1", []).request["recipient_email"] is None

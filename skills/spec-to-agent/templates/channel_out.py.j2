@@ -1,0 +1,6 @@
+    # ── {{node_id}} (channel out, tool={{tool}}) ─────────────────────────
+    # An outbound channel has no `match`: it delivers rather than reads. Whether
+    # it leaves the machine is the run's decision, not the board's -- `outbound`
+    # captures to disk unless CHANNEL_MODE is live -- so emit the call
+    # unconditionally and never branch on the mode here.
+    channels.outbound(spec, "{{node_id}}", _outputs)

@@ -63,34 +63,60 @@ Every command prints its credentials masked on the first line, so if something
 # 2. bring a frozen spec down from the bus onto disk
 .venv/bin/python -m cli pull --spec cce7715b
 
-# 3. snapshot the inbox  — LIVE, reaches Gmail through Composio
-#    --query overrides the board's under-fetching match for this snapshot only
-.venv/bin/python -m cli fetch --process final_test --limit 40 --live \
-    --query 'has:attachment'
+# 3. seed the provider query — LIVE, reaches Gmail through Composio
+#    The board's match reads 'Emails that has the subject line "Pre-Alert
+#    Documents" belong in inbox'. The real subject is "Pre Alerts Documents",
+#    plural — so the board's own filter matches nothing. This is that filter
+#    transcribed into Gmail syntax, remembered in queries.json and reused by
+#    every later fetch, including the agent's own.
+.venv/bin/python -m cli fetch --process demoboard --limit 40 --live \
+    --query 'subject:"Pre-Alerts Documents"'
 
 # 4. generate the agent — this invokes the skill, a model writes agent.py
-.venv/bin/python -m cli gen --process final_test
+.venv/bin/python -m cli gen --process demoboard
 
-# 5. diff it against the hand-written reference
-diff processes/final_test/reference/agent.py processes/final_test/agent/agent.py
+# 5. read the channel node: the Composio integration is IN the agent
+grep -A 3 'channel in' processes/demoboard/agent/agent.py
 
 # 6. score it
-.venv/bin/python -m cli eval --process final_test
+.venv/bin/python -m cli eval --process demoboard
 ```
 
 Step 3 takes about a minute. Step 4 takes one to three minutes — the skill is
-reading the spec and writing a file. Step 6 replays from disk and is fast
-*because extraction is cached*; the first ever eval took ~40 minutes and every
-one since has been seconds.
+reading the spec and writing a file.
+
+Step 5 is the thing to point at. The generated agent emits
+
+```python
+items += channels.inbound(spec, "cha_1", given=payloads)
+```
+
+at its channel node — it resolves `composio.gmail` from its own spec and
+fetches for itself. Nothing in `cli/` resolves a transport, and the generated
+code never names a provider: a board carrying `http.get` emits the same line.
+
+Step 6 re-fetches the inbox first, because `cli eval` and `cli run` both default
+to the live channel now — an explicit `cli fetch` is a way to snapshot without
+running, not a prerequisite. Extraction is still cached per payload, so a mail
+that was in the last snapshot costs nothing to score again and only genuinely
+new mail pays for a model call; the first ever eval took ~40 minutes and one
+over an unchanged inbox is seconds. Pass `--replay` to skip the fetch and score
+the last snapshot exactly.
+
+A newly arrived mail has no labelled case in `expected/results.json`, so it
+cannot move the score — it appears in `unmatched_fixtures` in the report, and
+that list is where you look to confirm it was picked up.
 
 ### Generality, in one command
 
 ```bash
 .venv/bin/python -m cli gen --process different_use_case
-diff processes/final_test/agent/agent.py processes/different_use_case/agent/agent.py
+diff processes/demoboard/agent/agent.py processes/different_use_case/agent/agent.py
 ```
 
-Two industries, one skill, one template set.
+Two industries, one skill, one template set. The diff is entirely node ids and
+templates — including `different_use_case`'s outbound channel, which emits
+`channels.outbound(...)` where `demoboard` has no send at all.
 
 ---
 
@@ -113,15 +139,17 @@ cd "/Users/danielhsiao/meridian take home"
 **Shell 1:**
 
 ```bash
-.venv/bin/python -m cli run --process final_test
+.venv/bin/python -m cli run --process demoboard
 ```
 
-Then open **http://localhost:8233** and click into the completed execution. The
-thing to point at is the **Input** pane: `"module": "processes.final_test.agent"`
-— that is the evidence the generated agent ran, not the hand-written reference.
+Then open **http://localhost:8233** and click into the completed execution. Two
+things to point at in the **Input** pane:
 
-Takes ~26s over 15 fixtures. Result lands in
-`processes/final_test/reports/run.json`.
+- `"module": "processes.demoboard.agent"` — the generated agent is what ran.
+- `"payloads": null` — the CLI handed it nothing. The agent's channel node
+  reached Composio from inside the activity and fetched the inbox itself.
+
+Result lands in `processes/demoboard/reports/run.json`.
 
 If the worker is not running, `cli run` will sit waiting rather than failing —
 the workflow is queued and nothing picks it up. That is Temporal behaving
@@ -131,12 +159,19 @@ correctly, but on camera it looks like a hang, so start the worker first.
 
 ## Part C — the heal loop (human in the loop)
 
+eval/heal only after you write expected/results.json + expected/adapter.py
+
 ```bash
-.venv/bin/python -m cli eval --process final_test      # read the report
-# ... you read processes/final_test/reports/eval.json, then in Claude Code:
+.venv/bin/python -m cli eval --process demoboard --replay   # read the report
+# ... you read processes/demoboard/reports/eval.json, then in Claude Code:
 /heal-agent
-.venv/bin/python -m cli eval --process final_test      # re-run — this is the checkpoint
+.venv/bin/python -m cli eval --process demoboard --replay   # re-run — the checkpoint
 ```
+
+`--replay` on both, and it matters: it pins the two runs to the same payloads,
+so a metric that moved moved because of the patch. Drop it and the inbox is
+re-fetched each time, which is what you want for a demo run and exactly what you
+do not want either side of a fix.
 
 The skill classifies, states a root cause, patches inside
 `processes/<id>/agent/`, and stops. It never re-runs the suite; you do.

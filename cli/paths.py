@@ -23,6 +23,16 @@ def fixtures_dir(process_id: str) -> Path:
     return process_dir(process_id) / "fixtures"
 
 
+def queries_path(process_id: str) -> Path:
+    """Where a `--query` override is remembered for later automatic refreshes.
+
+    Beside the spec, never inside it. The spec is frozen and `spec_hash`
+    identifies it exactly; a snapshot-time override is an operational note about
+    how to reach the far end, not a change to what the board says.
+    """
+    return process_dir(process_id) / "queries.json"
+
+
 def expected_dir(process_id: str) -> Path:
     return process_dir(process_id) / "expected"
 

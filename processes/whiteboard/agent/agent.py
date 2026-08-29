@@ -1,21 +1,25 @@
 """GENERATED from a frozen spec. Do not hand-edit for a passing test.
 
-    process:   final_test
-    spec_hash: sha256:da51e759fb7cd809bb25a798b3982b28390e4d2660e8e2982bab2bd3be14ab36
-    topo:      ['cha_1', 'art_1', 'art_2', 'art_4', 'art_3', 'art_5', 'pol_1', 'pol_2', 'out_1']
+    process:   whiteboard
+    spec_hash: sha256:0dec3476a157f6c47426d206115facdb09838b5884fa9129e4a1469bf5cc2c81
+    topo:      ['cha_1', 'art_1', 'art_2', 'art_4', 'art_5', 'pol_1', 'pol_2', 'out_1']
 
-Regenerate with `cli gen --process final_test`.
+Regenerate with `cli gen --process whiteboard`.
 
 This module is orchestration: one step per entry in `compiled.topo_order`, in
 order, calling verbs that live in `runtime/`. It defines no logic of its own --
 `cli/verify_generated.py` asserts that any function it does define is
 byte-identical to an `impl.body` in the spec.
+
+`payloads` is an override, not the source. Pass None -- as `cli run` does -- and
+the channel node connects through its own `tool` and fetches. `cli eval` passes
+one labelled case's payloads so the suite can score a case at a time.
 """
 from __future__ import annotations
 
 from typing import Any
 
-from runtime import outputs, relations
+from runtime import channels, outputs, relations
 from runtime.extract import extract, scope_hint
 from runtime.guards import on_absent, subsumes_guard
 from runtime.identity import merge_by_identity_key
@@ -25,15 +29,21 @@ from runtime.spec import Spec
 from runtime.state import RunState
 
 
-def run(payloads: list[dict[str, Any]], spec_path: str) -> dict[str, Any]:
+
+
+def run(payloads: list[dict[str, Any]] | None = None, spec_path: str = "") -> dict[str, Any]:
     spec = Spec.load(spec_path)
     state = RunState()
-    items = [Payload.from_dict(p) if isinstance(p, dict) else p for p in payloads]
-    payload_of = {p.id: p for p in items}
+    items: list[Payload] = []
+    payload_of: dict[str, Payload] = {}
 
-    # ── cha_1 (channel, tool=composio.gmail) ─────────────────────────────
-    # Payloads arrive already fetched: the caller decides live or replay, so the
-    # same agent serves a demo run and a deterministic eval.
+    # ── cha_1 (channel in, tool=composio.gmail) ──────────────────────────
+    # The integration lives here, in the agent, because the board drew this node
+    # and `topo_order` names it. `given=payloads` is the eval harness's override
+    # -- one labelled case's payloads -- and is None on a live run, where the
+    # agent resolves composio.gmail from the spec and fetches for itself.
+    items += channels.inbound(spec, "cha_1", given=payloads)
+    payload_of.update({p.id: p for p in items})
 
     # ── art_1 (artifact, from the payload) ─────────────────────────
     _config = spec.config("art_1")
@@ -78,12 +88,12 @@ def run(payloads: list[dict[str, Any]], spec_path: str) -> dict[str, Any]:
             payload_of[_parent.source],
             node_id="art_4", label=spec.label("art_4"),
             fields=_config.get("fields"), source_hint=_config.get("source_hint"),
-            extraction_hint=scope_hint("Invoice", _parent.fields),
+            extraction_hint=scope_hint(spec.label("art_2"), _parent.fields),
             parent_id=_parent.record_id,
         ))
 
-    # ── art_3 (artifact, from the payload) ─────────────────────────
-    _config = spec.config("art_3")
+    # ── art_5 (artifact, from the payload) ─────────────────────────
+    _config = spec.config("art_5")
     _parent_id = "art_1"
     if _parent_id and spec.primitive(_parent_id) == "artifact":
         _parents = state.records(_parent_id)
@@ -91,49 +101,29 @@ def run(payloads: list[dict[str, Any]], spec_path: str) -> dict[str, Any]:
         _parents = [None]
     for _parent in _parents:
         for _item in ([payload_of[_parent.source]] if _parent else items):
-            state.add("art_3", extract(
+            state.add("art_5", extract(
                 _item,
-                node_id="art_3", label=spec.label("art_3"),
+                node_id="art_5", label=spec.label("art_5"),
                 fields=_config.get("fields"), source_hint=_config.get("source_hint"),
                 extraction_hint=_config.get("extraction_hint"),
                 parent_id=_parent.record_id if _parent else None,
             ))
 
-    # ── art_3 (merge duplicates on Batch Number) ───────────────
-    # The same record can arrive twice -- two forwards of one message, a resend.
-    # `compiled.identity_merges` names the value that says two of them are the
-    # same one. Last-write-wins on a field collision, union on an absent one;
-    # the rule lives in runtime/identity.py and is not restated here.
-    state.replace("art_3", merge_by_identity_key(state.records("art_3"), "Batch Number"))
-
-    # ── art_5 (artifact, inside art_2) ─────────────────────
-    # Nested a level deeper, so the extraction has to say which parent it
-    # belongs to or it returns every row in the payload for every parent.
-    _config = spec.config("art_5")
-    for _parent in state.records("art_2"):
-        state.add("art_5", extract(
-            payload_of[_parent.source],
-            node_id="art_5", label=spec.label("art_5"),
-            fields=_config.get("fields"), source_hint=_config.get("source_hint"),
-            extraction_hint=scope_hint("Invoice", _parent.fields),
-            parent_id=_parent.record_id,
-        ))
-
-    # ── pol_1 (policy: present, verdict on art_5) ─────────────
+    # ── pol_1 (policy: present, verdict on art_4) ─────────────
     _config = spec.config("pol_1")
     _relation = _config["check"]["relation"]
-    for _record in state.records("art_5"):
+    for _record in state.records("art_4"):
         _values = [state.field(_record, _path) for _path in _config["reads"]]
         _ok = None if subsumes_guard(_relation) else on_absent(_values, _config["on_absent"])
         if _ok is None:
             _ok = relations.present(_values)
-        state.verdict("pol_1", "art_5", _record, _ok, f"present over {_config['reads']}")
+        state.verdict("pol_1", "art_4", _record, _ok, f"present over {_config['reads']}")
 
-    # ── pol_2 (policy: exists_matching, verdict on art_4) ─────
+    # ── pol_2 (policy: exists_matching, verdict on art_2) ─────
     _config = spec.config("pol_2")
     _subject_path, _candidate_path = _config["reads"]
     _candidates = state.values(_candidate_path)
-    for _record in state.records("art_4"):
+    for _record in state.records("art_2"):
         _subject = state.field(_record, _subject_path)
         _ok = on_absent([_subject], _config["on_absent"])
         if _ok is None:
@@ -141,17 +131,13 @@ def run(payloads: list[dict[str, Any]], spec_path: str) -> dict[str, Any]:
             # from different documents. The comparison is passed into the
             # relation, so the engine's definition of a match is untouched.
             _ok = relations.exists_matching(_subject, _candidates, key=squash)
-        state.verdict("pol_2", "art_4", _record, _ok, f"exists_matching on {_candidate_path}")
-
-    # ── e_6 (art_5 -> art_2, verdicts travel up) ───────
-    # Emitted after every policy and before the outputs: propagation reads
-    # verdicts, so every check has to have run first.
-    state.propagate("art_5", "art_2")
+        state.verdict("pol_2", "art_2", _record, _ok, f"exists_matching on {_candidate_path}")
 
     # ── out_1 (output) ─────────────────────────────────────────────
-    OUTPUT_NODE = "out_1"
-
+    # Bound to a name rather than computed in the return, because an outbound
+    # channel later in `topo_order` sends exactly these rows.
+    _outputs = outputs.rows(state, spec.config("out_1").get("rows", []))
     return {
-        "outputs": outputs.rows(state, spec.config(OUTPUT_NODE).get("rows", [])),
+        "outputs": _outputs,
         "extracted_state": state.extracted(),
     }

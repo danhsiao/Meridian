@@ -10,11 +10,18 @@ Read an eval report, work out *why* each case failed, and patch the agent.
 ## The loop, and where you sit in it
 
 ```
-cli eval --process <id>     deterministic; produces reports/eval.json
-                            a human reads it and invokes this skill
-        /heal-agent         you classify, state a root cause, patch, stop
-cli eval --process <id>     the human re-runs it
+cli eval --process <id> --replay    deterministic; produces reports/eval.json
+                                    a human reads it and invokes this skill
+        /heal-agent                 you classify, state a root cause, patch, stop
+cli eval --process <id> --replay    the human re-runs it
 ```
+
+**`--replay` is not optional in this loop.** Without it `cli eval` re-fetches
+the inbound channel first, and the two reports either side of your patch are
+then over different payloads — a metric that moved tells you nothing about
+whether the patch worked. If the report you are handed says `"inbound": "live"`,
+say so before classifying: any failure in it may be a payload that was not
+there last time rather than a defect in the agent.
 
 **You do not re-run the suite.** The human does, and that is the checkpoint. A
 healer that patches and re-runs in one breath can converge on green without

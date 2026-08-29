@@ -21,6 +21,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from .fetch import refresh
 from .paths import agent_dir, expected_dir, fixtures_dir, process_dir, reports_dir, spec_path
 
 
@@ -41,25 +42,49 @@ def _load_agent(process_id: str, agent: str):
     return _load_module(path, f"{process_id}_{agent}")
 
 
-def _load_fixtures(process_id: str) -> list[dict[str, Any]]:
+def _load_fixtures(process_id: str, replay: bool) -> list[dict[str, Any]]:
+    """Score against the live channel by default; `--replay` pins the snapshot.
+
+    Live is the default so that a mail which arrived since the last snapshot is
+    in the report rather than absent from it. What it costs is stated plainly
+    rather than hidden: a payload with no labelled case cannot be scored, so it
+    lands in `unmatched_fixtures` and moves no metric. A run that fetches a
+    genuinely new mail therefore shows the same pass count and one more
+    unmatched id -- that line is the signal, not a warning to skim past.
+
+    `--replay` is what the heal loop wants, and `--offline` implies it: two
+    consecutive evals over a moving inbox cannot tell a patch that worked from
+    an inbox that changed, which is the one comparison the loop exists to make.
+    """
+    if not replay:
+        refresh(process_id)
     directory = fixtures_dir(process_id)
     if not directory.exists():
         raise SystemExit(
-            f"no fixtures at {directory}. Run `cli fetch --process {process_id} --live` first."
+            f"no fixtures at {directory}. Drop --replay to fetch from the live channel."
         )
     return [json.loads(f.read_text()) for f in sorted(directory.glob("*.json"))]
 
 
-def run_eval(process_id: str, agent: str = "agent", offline: bool = False, only: str | None = None) -> int:
+def run_eval(
+    process_id: str,
+    agent: str = "agent",
+    offline: bool = False,
+    only: str | None = None,
+    replay: bool = False,
+) -> int:
     if offline:
         import os
 
         os.environ["EXTRACT_OFFLINE"] = "1"
+        # Offline means "do not reach the network to extract". Reaching it to
+        # fetch would honour the letter of that and not the point of it.
+        replay = True
 
     adapter = _load_module(expected_dir(process_id) / "adapter.py", f"{process_id}_adapter")
     agent_module = _load_agent(process_id, agent)
     cases = adapter.load(json.loads((expected_dir(process_id) / "results.json").read_text()))
-    fixtures = _load_fixtures(process_id)
+    fixtures = _load_fixtures(process_id, replay)
 
     scored_metrics = [m for m, source in adapter.METRICS.items() if source is not None]
     unscored = [m for m, source in adapter.METRICS.items() if source is None]
@@ -68,6 +93,9 @@ def run_eval(process_id: str, agent: str = "agent", offline: bool = False, only:
         "process_id": process_id,
         "agent": agent,
         "spec_hash": json.loads(spec_path(process_id).read_text())["spec_hash"],
+        # Two reports with the same score are not comparable unless they read
+        # the same payloads, and after this change that is no longer implied.
+        "inbound": "replay" if replay else "live",
         "scored_metrics": scored_metrics,
         "unscored_metrics": {m: adapter.UNSCORED_REASON for m in unscored},
         "cases": [],

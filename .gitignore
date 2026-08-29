@@ -31,5 +31,11 @@ processes/*/reports/
 # repository is public.
 processes/*/fixtures/
 
+# A provider query an operator found by hand, remembered by `cli fetch --query`
+# so later automatic refreshes reuse it. Operational state about one person's
+# inbox, not generated output and not part of the frozen spec — `spec_hash`
+# never sees it. A fresh clone seeds its own with one `cli fetch --query`.
+processes/*/queries.json
+
 .DS_Store
 .cache/

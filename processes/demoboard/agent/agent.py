@@ -10,12 +10,16 @@ This module is orchestration: one step per entry in `compiled.topo_order`, in
 order, calling verbs that live in `runtime/`. It defines no logic of its own --
 `cli/verify_generated.py` asserts that any function it does define is
 byte-identical to an `impl.body` in the spec.
+
+`payloads` is an override, not the source. Pass None -- as `cli run` does -- and
+the channel node connects through its own `tool` and fetches. `cli eval` passes
+one labelled case's payloads so the suite can score a case at a time.
 """
 from __future__ import annotations
 
 from typing import Any
 
-from runtime import outputs, relations
+from runtime import channels, outputs, relations
 from runtime.extract import extract, scope_hint
 from runtime.guards import on_absent, subsumes_guard
 from runtime.identity import merge_by_identity_key
@@ -27,15 +31,19 @@ from runtime.state import RunState
 
 
 
-def run(payloads: list[dict[str, Any]], spec_path: str) -> dict[str, Any]:
+def run(payloads: list[dict[str, Any]] | None = None, spec_path: str = "") -> dict[str, Any]:
     spec = Spec.load(spec_path)
     state = RunState()
-    items = [Payload.from_dict(p) if isinstance(p, dict) else p for p in payloads]
-    payload_of = {p.id: p for p in items}
+    items: list[Payload] = []
+    payload_of: dict[str, Payload] = {}
 
-    # ── cha_1 (channel, tool=composio.gmail) ─────────────────────────────
-    # Payloads arrive already fetched: the caller decides live or replay, so the
-    # same agent serves a demo run and a deterministic eval.
+    # ── cha_1 (channel in, tool=composio.gmail) ──────────────────────────
+    # The integration lives here, in the agent, because the board drew this node
+    # and `topo_order` names it. `given=payloads` is the eval harness's override
+    # -- one labelled case's payloads -- and is None on a live run, where the
+    # agent resolves composio.gmail from the spec and fetches for itself.
+    items += channels.inbound(spec, "cha_1", given=payloads)
+    payload_of.update({p.id: p for p in items})
 
     # ── art_1 (artifact, from the payload) ─────────────────────────
     _config = spec.config("art_1")
@@ -65,6 +73,10 @@ def run(payloads: list[dict[str, Any]], spec_path: str) -> dict[str, Any]:
     # inside combined documents and pins the identifier to its printed form.
     # pol_2's relation and its `squash` comparison are untouched -- the fix is
     # in what gets read, not in what counts as a match.
+    #
+    # Re-applied by hand after the regeneration that moved the Composio
+    # integration into the channel node. `cli gen` overwrites this file, so a
+    # heal pass does not survive one; the log at ../heal-log.md is the record.
     _COA_HINT = (
         "Certificates of analysis. A certificate may be a standalone PDF or carried "
         "inside a combined document -- COC, 'COC & USDA', 'COC&COA', 'Final FP COA', "
@@ -126,7 +138,7 @@ def run(payloads: list[dict[str, Any]], spec_path: str) -> dict[str, Any]:
             payload_of[_parent.source],
             node_id="art_4", label=spec.label("art_4"),
             fields=_config.get("fields"), source_hint=_config.get("source_hint"),
-            extraction_hint=scope_hint(spec.label("art_3"), _parent.fields),
+            extraction_hint=scope_hint("Invoices", _parent.fields),
             parent_id=_parent.record_id,
         ))
 
@@ -146,7 +158,7 @@ def run(payloads: list[dict[str, Any]], spec_path: str) -> dict[str, Any]:
             payload_of[_parent.source],
             node_id="art_5", label=spec.label("art_5"),
             fields=_config.get("fields"), source_hint=_config.get("source_hint"),
-            extraction_hint=scope_hint(spec.label("art_3"), _parent.fields),
+            extraction_hint=scope_hint("Invoices", _parent.fields),
             parent_id=_parent.record_id,
         ))
 
@@ -180,8 +192,11 @@ def run(payloads: list[dict[str, Any]], spec_path: str) -> dict[str, Any]:
     state.propagate("art_5", "art_3")
 
     # ── out_1 (output) ─────────────────────────────────────────────
-    OUTPUT_NODE = "out_1"
+    # Bound to a name rather than computed in the return, because an outbound
+    # channel later in `topo_order` sends exactly these rows.
+    _outputs = outputs.rows(state, spec.config("out_1").get("rows", []))
+
     return {
-        "outputs": outputs.rows(state, spec.config(OUTPUT_NODE).get("rows", [])),
+        "outputs": _outputs,
         "extracted_state": state.extracted(),
     }

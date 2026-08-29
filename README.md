@@ -29,12 +29,12 @@ Every industry-specific word lives in a user-typed `label` or `source_hint`.
 | `supabase/` | The bus. Migrations for the 8 tables, `config.toml` for the local stack, and a generated `seed.sql`. The canvas, worker and CLI coordinate only through these rows — none of them calls another. |
 | `examples/` | Three boards as JSON (frozen JSON specs), used to prove for all use cases, not just take home assignment. 
 | `cli/` | The Python CLI: `specs`, `pull`, `fetch`, `gen`, `eval`, `run`. The back half's only entry point. |
-| `runtime/` | The hand-written runtime library (code skeletong) generated agents link against: extraction, identity merging, relations, policy verbs, output verbs, channels (Composio / capture / replay), and the Temporal worker. |
-| `skills/` | `spec-to-agent` (spec + 9 Jinja templates → `agent.py`) and `heal-agent` (classify eval failures, patch, stop). |
-| `processes/` | One directory per compiled process: its pulled `spec.json`, generated `agent/`, hand-written `reference/`, labels in `expected/`, and gitignored `fixtures/` and `reports/`. |
+| `runtime/` | The hand-written runtime library (code skeletong) generated agents link against: extraction, identity merging, relations, policy verbs, output verbs, channels (the Composio adapter, the verbs generated agents call, capture and replay), and the Temporal worker. |
+| `skills/` | `spec-to-agent` (spec + 12 Jinja templates → `agent.py`) and `heal-agent` (classify eval failures, patch, stop). |
+| `processes/` | One directory per compiled process: its pulled `spec.json`, generated `agent/`, labels in `expected/`, an optional `queries.json`, and gitignored `fixtures/` and `reports/`. |
 | `tests/` | Integration tests over the real example boards; the compiler's own synthetic-id tests live beside it in `packages/compiler/src/__tests__/`. |
 | `tools/` | `doctor.mjs` (one-command checkout verification), `seed-sql.mjs`, `write-env.sh`, `check-nouns.mjs`. |
-| `docs/` | [local-dev.md](docs/local-dev.md) (setup in depth), [demo.md](docs/demo.md) (recording runbook)
+| `docs/` | [demo.md](docs/demo.md) — the runbook: what to run, in which shell, in what order. |
 
 ---
 
@@ -78,15 +78,55 @@ Then, with a frozen spec on the bus (`./cli.sh` is a shorthand for
 `.venv/bin/python -m cli`):
 
 ```bash
-./cli.sh specs                                 # frozen specs on the bus
-./cli.sh pull  --spec cce7715b                 # bus -> processes/<id>/spec.json
-./cli.sh fetch --process final_test --live     # snapshot Gmail -> fixtures/  (~1 min)
-./cli.sh gen   --process final_test            # the skill writes processes/<id>/agent/
-./cli.sh eval  --process final_test            # score against expected/
+./cli.sh specs                                # frozen specs on the bus
+./cli.sh pull  --spec cce7715b                # bus -> processes/<id>/spec.json
+./cli.sh fetch --process demoboard --live \
+    --query 'subject:"Pre-Alerts Documents"'  # once — seeds queries.json
+./cli.sh gen   --process demoboard            # the skill writes processes/<id>/agent/
+./cli.sh eval  --process demoboard            # fetch Gmail, then score against expected/
 ```
 
-`fixtures/` is gitignored — it is a verbatim copy of a real inbox — so a fresh
-clone must run `fetch` before `eval` or `run` has anything to read.
+**The `fetch` line is needed once on a fresh clone, and the reason is a finding
+against the board rather than a setup chore.** `match` is a `prompt`-bound key —
+prose the operator typed — and this board's reads *"Emails that has the subject
+line "Pre-Alert Documents" belong in inbox"*. The real subject line is
+`Pre Alerts Documents`, plural, so the board's own filter matches nothing. The
+`--query` above is that filter transcribed faithfully into Gmail syntax; it
+returns the same 16 messages the labels were written against. Nothing validates
+a channel filter against the transport it targets, so the board froze clean and
+would fetch zero — that gap is listed under *What I'd do differently*.
+
+**The Composio integration lives in the generated agent, not in the CLI.** Every
+`agent.py` emits its channel node as a call:
+
+```python
+# ── cha_1 (channel in, tool=composio.gmail) ──
+items += channels.inbound(spec, "cha_1", given=payloads)
+```
+
+`cli run` passes no payloads, so the agent resolves `composio.gmail` from its own
+spec and fetches for itself; the inbox as it is now, including mail that arrived
+five minutes ago. Nothing in `cli/` resolves a transport and nothing in a
+generated agent names a provider — `channels.inbound` reads the `tool` string
+from the spec and dispatches, so a board carrying `http.get` emits the same line.
+
+`given` is the one override, and it exists for `cli eval`: the suite scores one
+labelled case at a time and has to hand the agent that case's payloads. It is
+also what `--replay` rides on, which is what makes a heal loop's two runs
+comparable — two evals over a moving inbox cannot tell a patch that worked from
+an inbox that changed.
+
+Outbound works the same way (`channels.outbound`) and captures to `captured/`
+unless `run --live` says otherwise. Sending is not idempotent, so it fails safe
+in the direction that is recoverable; reading is, so it defaults live.
+
+`./cli.sh fetch --process <id> --live` snapshots without running and takes a
+`--query` override — needed because a board's `match` is prose an operator
+wrote, not a provider query language. A working override is remembered in
+`processes/<id>/queries.json` beside the spec (never in it, so `spec_hash` is
+untouched) and honoured by the agent's own fetch. `fixtures/` is gitignored — it
+is a verbatim copy of a real inbox — so a fresh clone has nothing to `--replay`
+until one live run has filled it.
 
 `run` is the only command that goes through Temporal, and the only one needing a
 worker. In three shells:
@@ -94,16 +134,27 @@ worker. In three shells:
 ```bash
 temporal server start-dev --ui-port 8233       # shell 1
 .venv/bin/python -u -m runtime.worker          # shell 2
-./cli.sh run --process final_test              # shell 3
+./cli.sh run --process demoboard              # shell 3
 ```
 
 The completed execution at http://localhost:8233 records
-`"module": "processes.final_test.agent"` — evidence the *generated* agent ran,
-not the hand-written reference. Results land in `processes/<id>/reports/`.
+`"module": "processes.demoboard.agent"` and `"payloads": null` — evidence that
+the *generated* agent ran and that it fetched the inbox itself. Results land in
+`processes/<id>/reports/`.
+
+**`eval` and `/heal-agent` need labels, and labels are hand-written.** A process
+scores only once `processes/<id>/expected/results.json` (the labelled cases) and
+`processes/<id>/expected/adapter.py` (the metric → node-id table) exist. Neither
+can be generated: the adapter encodes which artifact node holds which business
+metric, which is a human judgement about that board. `demoboard` ships both;
+`whiteboard` and `different_use_case` ship neither, so on those two `gen` and
+`run` work and `eval` does not.
 
 To heal a failing eval, read `reports/eval.json`, run `/heal-agent` in Claude
 Code, then re-run `eval` yourself — the skill classifies, patches, and stops
-without re-running the suite, so the checkpoint stays with you. Note that
+without re-running the suite, so the checkpoint stays with you. Pass `--replay`
+on both evals so the two runs read the same payloads; otherwise the inbox moves
+underneath the patch and a metric that changed tells you nothing. Note that
 `cli gen` overwrites `agent/`, so a regeneration discards every heal pass: run
 `/heal-agent` *after* the last `gen`, never before. Nothing guards this today.
 
