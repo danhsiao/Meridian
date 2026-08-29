@@ -1,5 +1,5 @@
 # Autonomous Workflow Engine (Meridian take-home)
-
+Deliverable Doc: [Meridian Take Home.pdf](https://github.com/user-attachments/files/31578589/Meridian.Take.Home.pdf)
 Daniel Hsiao · 48 hours
 
 A non-technical process owner draws their process on a whiteboard. An AI review
